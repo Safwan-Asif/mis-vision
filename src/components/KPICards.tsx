@@ -1,14 +1,14 @@
-import { useMemo } from 'react';
+import { useMemo, useState } from 'react';
 import { ProcessedData } from '../types';
 import { formatCurrency, formatPercent, cn } from '../lib/utils';
-import { TrendingUp, TrendingDown, ArrowUpRight, ArrowDownRight, Target, Activity, ShieldCheck } from 'lucide-react';
+import { TrendingUp, TrendingDown, ArrowUpRight, ArrowDownRight, Target, Activity, DollarSign, Layers, PieChart } from 'lucide-react';
 
 interface KPICardsProps {
   allData: ProcessedData[];
   filters: {
+    year: string;
     month: string;
-    functionalArea: string;
-    costCenter: string;
+    groupAccountNumber: string;
     misHead: string;
   };
   isDarkMode: boolean;
@@ -17,50 +17,60 @@ interface KPICardsProps {
 const MONTH_ORDER = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
 
 export function KPICards({ allData, filters, isDarkMode }: KPICardsProps) {
-  // Filter by non-month dimensions (costCenter, functionalArea, misHead)
+  const [activeTab, setActiveTab] = useState<'all' | 'monthly' | 'ytd'>('all');
+
+  // Filter data by dimension (groupAccountNumber and misHead)
   const filteredByDimension = useMemo(() => {
     return allData.filter(row => {
-      if (filters.functionalArea && row.functionalArea !== filters.functionalArea) return false;
-      if (filters.costCenter && row.costCenter !== filters.costCenter) return false;
+      if (filters.groupAccountNumber && row.groupAccountNumber !== filters.groupAccountNumber) return false;
       if (filters.misHead && row.misHead !== filters.misHead) return false;
       return true;
     });
-  }, [allData, filters.functionalArea, filters.costCenter, filters.misHead]);
+  }, [allData, filters.groupAccountNumber, filters.misHead]);
 
-  // Determine available years and current year / prior year
+  // Determine current year and prior year
   const availableYears = useMemo(() => {
     const yearsSet = new Set<string>(filteredByDimension.map(r => r.year).filter((y): y is string => Boolean(y)));
     return Array.from(yearsSet).sort((a: string, b: string) => parseInt(a, 10) - parseInt(b, 10));
   }, [filteredByDimension]);
 
-  const currentYear = availableYears.length > 0 ? availableYears[availableYears.length - 1] : '2024';
-  const priorYear = availableYears.length > 1 ? availableYears[availableYears.length - 2] : (parseInt(currentYear) - 1).toString();
+  const currentYear = filters.year || (availableYears.length > 0 ? availableYears[availableYears.length - 1] : '2026');
+  const priorYear = (parseInt(currentYear, 10) - 1).toString();
 
-  // Determine max month index for YTD
+  // Determine max month index and selected month label
   const { maxMonthIndex, selectedMonthLabel } = useMemo(() => {
     if (filters.month) {
       const idx = MONTH_ORDER.indexOf(filters.month);
       if (idx !== -1) return { maxMonthIndex: idx, selectedMonthLabel: filters.month };
     }
-    // Default to maximum month index found in currentYear
+    // Default to highest month available in dataset
     const cyRows = filteredByDimension.filter(r => r.year === currentYear);
     if (cyRows.length > 0) {
       const maxIdx = Math.max(...cyRows.map(r => r.monthIndex));
-      return { maxMonthIndex: maxIdx, selectedMonthLabel: MONTH_ORDER[maxIdx] || 'YTD' };
+      return { maxMonthIndex: maxIdx, selectedMonthLabel: MONTH_ORDER[maxIdx] || 'Dec' };
     }
     return { maxMonthIndex: 11, selectedMonthLabel: 'Dec' };
   }, [filters.month, filteredByDimension, currentYear]);
 
-  // YTD Accumulation up to maxMonthIndex
-  const currentYearYTD = useMemo(() => {
+  // Section A Data: Particular Selected Month
+  const currentMonthRows = useMemo(() => {
+    return filteredByDimension.filter(r => r.year === currentYear && r.monthIndex === maxMonthIndex);
+  }, [filteredByDimension, currentYear, maxMonthIndex]);
+
+  const priorYearMonthRows = useMemo(() => {
+    return filteredByDimension.filter(r => r.year === priorYear && r.monthIndex === maxMonthIndex);
+  }, [filteredByDimension, priorYear, maxMonthIndex]);
+
+  // Section B Data: Cumulative YTD up to selected month
+  const currentYTDSubtotalRows = useMemo(() => {
     return filteredByDimension.filter(r => r.year === currentYear && r.monthIndex <= maxMonthIndex);
   }, [filteredByDimension, currentYear, maxMonthIndex]);
 
-  const priorYearYTD = useMemo(() => {
+  const priorYTDSubtotalRows = useMemo(() => {
     return filteredByDimension.filter(r => r.year === priorYear && r.monthIndex <= maxMonthIndex);
   }, [filteredByDimension, priorYear, maxMonthIndex]);
 
-  // Calculate Metrics helper
+  // Metric Calculation Helper
   const calcMetrics = (rows: ProcessedData[]) => {
     let salesActual = 0;
     let salesBudget = 0;
@@ -112,6 +122,8 @@ export function KPICards({ allData, filters, isDarkMode }: KPICardsProps) {
     const grossProfitBudget = netRevBudget - cogsBudget;
     const netProfitActual = grossProfitActual - opexActual;
     const netProfitBudget = grossProfitBudget - opexBudget;
+    const ebitdaActual = netProfitActual + depActual;
+    const ebitdaBudget = netProfitBudget + depBudget;
 
     return {
       salesActual,
@@ -122,364 +134,439 @@ export function KPICards({ allData, filters, isDarkMode }: KPICardsProps) {
       netRevBudget,
       cogsActual,
       cogsBudget,
+      grossProfitActual,
+      grossProfitBudget,
       opexActual,
       opexBudget,
+      depActual,
+      depBudget,
       netProfitActual,
       netProfitBudget,
-      depActual,
-      depBudget
+      ebitdaActual,
+      ebitdaBudget
     };
   };
 
-  const cy = useMemo(() => calcMetrics(currentYearYTD), [currentYearYTD]);
-  const py = useMemo(() => calcMetrics(priorYearYTD), [priorYearYTD]);
+  const monthMetrics = useMemo(() => calcMetrics(currentMonthRows), [currentMonthRows]);
+  const pyMonthMetrics = useMemo(() => calcMetrics(priorYearMonthRows), [priorYearMonthRows]);
 
-  const hasPYData = py.salesActual > 0 || py.netRevActual > 0;
+  const ytdMetrics = useMemo(() => calcMetrics(currentYTDSubtotalRows), [currentYTDSubtotalRows]);
+  const pyYTDMetrics = useMemo(() => calcMetrics(priorYTDSubtotalRows), [priorYTDSubtotalRows]);
 
-  // Card 1: Net Revenue (YTD)
-  const netRevYoYPct = hasPYData && py.netRevActual !== 0 
-    ? ((cy.netRevActual - py.netRevActual) / Math.abs(py.netRevActual)) * 100 
-    : (cy.netRevBudget !== 0 ? ((cy.netRevActual - cy.netRevBudget) / Math.abs(cy.netRevBudget)) * 100 : 0);
+  // Card Grid Component for rendering 8 KPI Cards
+  const CardGrid = ({ 
+    title, 
+    subtitle, 
+    cur, 
+    py, 
+    periodLabel,
+    badgePrefix 
+  }: { 
+    title: string; 
+    subtitle: string; 
+    cur: ReturnType<typeof calcMetrics>; 
+    py: ReturnType<typeof calcMetrics>; 
+    periodLabel: string;
+    badgePrefix: string;
+  }) => {
+    const hasPYData = py.salesActual > 0 || py.netRevActual > 0;
 
-  // Card 2: Net Profit (YTD)
-  const netProfitVarAmount = cy.netProfitActual - cy.netProfitBudget;
-  const netProfitVarPct = cy.netProfitBudget !== 0 
-    ? (netProfitVarAmount / Math.abs(cy.netProfitBudget)) * 100 
-    : 0;
-  const isNetProfitFav = cy.netProfitActual >= cy.netProfitBudget;
+    // 1. Net Revenue
+    const netRevYoY = hasPYData && py.netRevActual !== 0 
+      ? ((cur.netRevActual - py.netRevActual) / Math.abs(py.netRevActual)) * 100 
+      : (cur.netRevBudget !== 0 ? ((cur.netRevActual - cur.netRevBudget) / Math.abs(cur.netRevBudget)) * 100 : 0);
 
-  // Card 3: Depreciation (YTD)
-  const depVarAmount = cy.depActual - cy.depBudget;
-  const depVarPct = cy.depBudget !== 0 
-    ? (depVarAmount / Math.abs(cy.depBudget)) * 100 
-    : 0;
-  const isDepFav = cy.depActual <= cy.depBudget;
+    // 2. Net Profit
+    const npVar = cur.netProfitActual - cur.netProfitBudget;
+    const npVarPct = cur.netProfitBudget !== 0 ? (npVar / Math.abs(cur.netProfitBudget)) * 100 : 0;
+    const isNPFav = cur.netProfitActual >= cur.netProfitBudget;
 
-  // Card 4: Achievement Amount & Percentage (YTD)
-  const salesAchievementAmount = cy.salesActual - cy.salesBudget;
-  const salesAchievementPct = cy.salesBudget !== 0 
-    ? (cy.salesActual / cy.salesBudget) * 100 
-    : 0;
+    // 3. Depreciation
+    const depVar = cur.depActual - cur.depBudget;
+    const depVarPct = cur.depBudget !== 0 ? (depVar / Math.abs(cur.depBudget)) * 100 : 0;
+    const isDepFav = cur.depActual <= cur.depBudget;
 
-  // Card 5: Growth Rate % (YTD)
-  const growthRatePct = hasPYData && py.salesActual !== 0 
-    ? ((cy.salesActual - py.salesActual) / Math.abs(py.salesActual)) * 100 
-    : (cy.salesBudget !== 0 ? ((cy.salesActual - cy.salesBudget) / Math.abs(cy.salesBudget)) * 100 : 0);
+    // 4. Achievement Amount & %
+    const achAmount = cur.salesActual - cur.salesBudget;
+    const achPct = cur.salesBudget !== 0 ? (cur.salesActual / cur.salesBudget) * 100 : 0;
 
-  // Card 6: Overall Budget Variance & Health (YTD)
-  const overallVarAmount = cy.netProfitActual - cy.netProfitBudget;
-  const overallExecutionVarPct = cy.netProfitBudget !== 0 
-    ? (overallVarAmount / Math.abs(cy.netProfitBudget)) * 100 
-    : 0;
-  const isOverallFav = overallVarAmount >= 0;
+    // 5. Growth Rate %
+    const growthRate = hasPYData && py.salesActual !== 0 
+      ? ((cur.salesActual - py.salesActual) / Math.abs(py.salesActual)) * 100 
+      : (cur.salesBudget !== 0 ? ((cur.salesActual - cur.salesBudget) / Math.abs(cur.salesBudget)) * 100 : 0);
 
-  const ytdRangeText = `Jan - ${selectedMonthLabel}`;
+    // 6. EBITDA
+    const ebitdaVar = cur.ebitdaActual - cur.ebitdaBudget;
+    const ebitdaVarPct = cur.ebitdaBudget !== 0 ? (ebitdaVar / Math.abs(cur.ebitdaBudget)) * 100 : 0;
+    const isEbitdaFav = cur.ebitdaActual >= cur.ebitdaBudget;
 
-  return (
-    <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4 lg:gap-5">
-      {/* CARD 1: Net Revenue (YTD) */}
-      <div className={cn(
-        "backdrop-blur-lg rounded-xl p-5 relative overflow-hidden transition-all duration-300 hover:-translate-y-1 border flex flex-col justify-between",
-        isDarkMode 
-          ? "bg-white/5 border-white/10 text-white" 
-          : "bg-white/90 border-slate-200/90 text-slate-900 shadow-md"
-      )}>
-        <div className={cn(
-          "absolute top-0 right-0 w-24 h-24 rounded-full -mr-10 -mt-10 blur-2xl",
-          isDarkMode ? "bg-[#D4AF37]/10" : "bg-[#D4AF37]/20"
-        )}></div>
-        <div>
-          <div className="flex justify-between items-start mb-2">
+    // 7. COGS & Direct Costs
+    const cogsVar = cur.cogsActual - cur.cogsBudget;
+    const cogsVarPct = cur.cogsBudget !== 0 ? (cogsVar / Math.abs(cur.cogsBudget)) * 100 : 0;
+    const isCogsFav = cur.cogsActual <= cur.cogsBudget;
+
+    // 8. OPEX
+    const opexVar = cur.opexActual - cur.opexBudget;
+    const opexVarPct = cur.opexBudget !== 0 ? (opexVar / Math.abs(cur.opexBudget)) * 100 : 0;
+    const isOpexFav = cur.opexActual <= cur.opexBudget;
+
+    return (
+      <div className="flex flex-col gap-4">
+        <div className="flex items-center justify-between">
+          <div className="flex items-center gap-2">
+            <div className="w-2 h-6 bg-[#D4AF37] rounded-full"></div>
             <div>
-              <span className={cn(
-                "text-xs font-semibold uppercase tracking-wider block",
-                isDarkMode ? "text-white/60" : "text-slate-500"
-              )}>
-                Net Revenue <span className="normal-case opacity-75">({ytdRangeText})</span>
+              <h3 className={cn("text-base font-bold tracking-tight", isDarkMode ? "text-white" : "text-slate-900")}>
+                {title}
+              </h3>
+              <p className={cn("text-xs font-medium", isDarkMode ? "text-white/50" : "text-slate-500")}>
+                {subtitle} ({periodLabel})
+              </p>
+            </div>
+          </div>
+          <span className={cn(
+            "text-xs px-3 py-1 rounded-full font-semibold border",
+            isDarkMode ? "bg-white/5 border-white/10 text-[#D4AF37]" : "bg-amber-50 border-amber-200 text-[#B48A1D]"
+          )}>
+            {badgePrefix}: {periodLabel}
+          </span>
+        </div>
+
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+          {/* Card 1: Net Revenue */}
+          <div className={cn(
+            "backdrop-blur-lg rounded-xl p-4 transition-all duration-200 border flex flex-col justify-between hover:border-[#D4AF37]/50",
+            isDarkMode ? "bg-white/5 border-white/10 text-white" : "bg-white/90 border-slate-200 text-slate-900 shadow-md"
+          )}>
+            <div>
+              <div className="flex justify-between items-start mb-1">
+                <span className={cn("text-[11px] font-bold uppercase tracking-wider", isDarkMode ? "text-white/60" : "text-slate-500")}>
+                  Net Revenue
+                </span>
+                <span className={cn(
+                  "px-2 py-0.5 rounded text-[10px] font-bold border flex items-center gap-0.5",
+                  netRevYoY >= 0 
+                    ? (isDarkMode ? "bg-emerald-500/15 text-emerald-400 border-emerald-500/30" : "bg-emerald-50 text-emerald-700 border-emerald-300")
+                    : (isDarkMode ? "bg-rose-500/15 text-rose-400 border-rose-500/30" : "bg-rose-50 text-rose-700 border-rose-300")
+                )}>
+                  {netRevYoY >= 0 ? <ArrowUpRight size={12} /> : <ArrowDownRight size={12} />}
+                  {netRevYoY >= 0 ? '+' : ''}{formatPercent(netRevYoY)}
+                </span>
+              </div>
+              <div className={cn("text-2xl font-light tracking-tight my-1 font-mono", isDarkMode ? "text-[#D4AF37]" : "text-[#B48A1D]")}>
+                {formatCurrency(cur.netRevActual)}
+              </div>
+            </div>
+            <div className={cn("mt-2 pt-2 border-t text-[11px] flex justify-between font-medium", isDarkMode ? "border-white/5 text-white/50" : "border-slate-100 text-slate-500")}>
+              <span>Last Year: <strong className={isDarkMode ? "text-white/80" : "text-slate-800"}>{hasPYData ? formatCurrency(py.netRevActual) : 'N/A'}</strong></span>
+              <span>Target: <strong className={isDarkMode ? "text-white/80" : "text-slate-800"}>{formatCurrency(cur.netRevBudget)}</strong></span>
+            </div>
+          </div>
+
+          {/* Card 2: Net Profit */}
+          <div className={cn(
+            "backdrop-blur-lg rounded-xl p-4 transition-all duration-200 border flex flex-col justify-between hover:border-[#D4AF37]/50",
+            isDarkMode ? "bg-white/5 border-white/10 text-white" : "bg-white/90 border-slate-200 text-slate-900 shadow-md"
+          )}>
+            <div>
+              <div className="flex justify-between items-start mb-1">
+                <span className={cn("text-[11px] font-bold uppercase tracking-wider", isDarkMode ? "text-white/60" : "text-slate-500")}>
+                  Net Profit
+                </span>
+                <span className={cn(
+                  "px-2 py-0.5 rounded text-[10px] font-bold border flex items-center gap-0.5",
+                  isNPFav 
+                    ? (isDarkMode ? "bg-emerald-500/15 text-emerald-400 border-emerald-500/30" : "bg-emerald-50 text-emerald-700 border-emerald-300")
+                    : (isDarkMode ? "bg-rose-500/15 text-rose-400 border-rose-500/30" : "bg-rose-50 text-rose-700 border-rose-300")
+                )}>
+                  {isNPFav ? <TrendingUp size={12} /> : <TrendingDown size={12} />}
+                  {npVarPct >= 0 ? '+' : ''}{formatPercent(npVarPct)} {isNPFav ? 'FAV' : 'UNFAV'}
+                </span>
+              </div>
+              <div className={cn("text-2xl font-light tracking-tight my-1 font-mono", isDarkMode ? "text-[#D4AF37]" : "text-[#B48A1D]")}>
+                {formatCurrency(cur.netProfitActual)}
+              </div>
+            </div>
+            <div className={cn("mt-2 pt-2 border-t text-[11px] flex justify-between font-medium", isDarkMode ? "border-white/5 text-white/50" : "border-slate-100 text-slate-500")}>
+              <span>Budget: <strong className={isDarkMode ? "text-white/80" : "text-slate-800"}>{formatCurrency(cur.netProfitBudget)}</strong></span>
+              <span className={cn("font-mono font-bold", isNPFav ? "text-emerald-500" : "text-rose-500")}>
+                VAR: {npVar >= 0 ? '+' : ''}{formatCurrency(npVar)}
               </span>
             </div>
-            <span className={cn(
-              "px-2 py-0.5 rounded text-[10px] font-bold border flex items-center gap-1",
-              netRevYoYPct >= 0 
-                ? (isDarkMode ? "bg-[#10B981]/15 text-[#10B981] border-[#10B981]/30" : "bg-emerald-50 text-emerald-700 border-emerald-300")
-                : (isDarkMode ? "bg-[#EF4444]/15 text-[#EF4444] border-[#EF4444]/30" : "bg-rose-50 text-rose-700 border-rose-300")
-            )}>
-              {netRevYoYPct >= 0 ? <ArrowUpRight size={12} /> : <ArrowDownRight size={12} />}
-              {netRevYoYPct >= 0 ? '+' : ''}{formatPercent(netRevYoYPct)} {hasPYData ? 'vs PY' : 'vs Bud'}
-            </span>
           </div>
 
+          {/* Card 3: Depreciation */}
           <div className={cn(
-            "text-3xl font-light tracking-tight my-1",
-            isDarkMode ? "text-[#D4AF37]" : "text-[#B48A1D]"
+            "backdrop-blur-lg rounded-xl p-4 transition-all duration-200 border flex flex-col justify-between hover:border-[#D4AF37]/50",
+            isDarkMode ? "bg-white/5 border-white/10 text-white" : "bg-white/90 border-slate-200 text-slate-900 shadow-md"
           )}>
-            {formatCurrency(cy.netRevActual)}
-          </div>
-        </div>
-
-        <div className={cn(
-          "mt-3 pt-3 border-t text-[11px] flex items-center justify-between font-medium",
-          isDarkMode ? "border-white/5 text-white/50" : "border-slate-100 text-slate-500"
-        )}>
-          <span>Prior Year YTD: <strong className={isDarkMode ? "text-white/80" : "text-slate-700"}>{hasPYData ? formatCurrency(py.netRevActual) : 'N/A'}</strong></span>
-          <span>Target: <strong className={isDarkMode ? "text-white/80" : "text-slate-700"}>{formatCurrency(cy.netRevBudget)}</strong></span>
-        </div>
-      </div>
-
-      {/* CARD 2: Net Profit (YTD) */}
-      <div className={cn(
-        "backdrop-blur-lg rounded-xl p-5 relative overflow-hidden transition-all duration-300 hover:-translate-y-1 border flex flex-col justify-between",
-        isDarkMode 
-          ? "bg-white/5 border-white/10 text-white" 
-          : "bg-white/90 border-slate-200/90 text-slate-900 shadow-md"
-      )}>
-        <div className={cn(
-          "absolute top-0 right-0 w-24 h-24 rounded-full -mr-10 -mt-10 blur-2xl",
-          isDarkMode ? "bg-emerald-500/10" : "bg-emerald-500/20"
-        )}></div>
-        <div>
-          <div className="flex justify-between items-start mb-2">
-            <span className={cn(
-              "text-xs font-semibold uppercase tracking-wider block",
-              isDarkMode ? "text-white/60" : "text-slate-500"
-            )}>
-              Net Profit <span className="normal-case opacity-75">({ytdRangeText})</span>
-            </span>
-            <span className={cn(
-              "px-2 py-0.5 rounded text-[10px] font-bold border flex items-center gap-1",
-              isNetProfitFav 
-                ? (isDarkMode ? "bg-[#10B981]/15 text-[#10B981] border-[#10B981]/30" : "bg-emerald-50 text-emerald-700 border-emerald-300")
-                : (isDarkMode ? "bg-[#EF4444]/15 text-[#EF4444] border-[#EF4444]/30" : "bg-rose-50 text-rose-700 border-rose-300")
-            )}>
-              {isNetProfitFav ? <TrendingUp size={12} /> : <TrendingDown size={12} />}
-              {netProfitVarPct >= 0 ? '+' : ''}{formatPercent(netProfitVarPct)} {isNetProfitFav ? 'FAV' : 'UNFAV'}
-            </span>
-          </div>
-
-          <div className={cn(
-            "text-3xl font-light tracking-tight my-1",
-            isDarkMode ? "text-[#D4AF37]" : "text-[#B48A1D]"
-          )}>
-            {formatCurrency(cy.netProfitActual)}
-          </div>
-        </div>
-
-        <div className={cn(
-          "mt-3 pt-3 border-t text-[11px] flex items-center justify-between font-medium",
-          isDarkMode ? "border-white/5 text-white/50" : "border-slate-100 text-slate-500"
-        )}>
-          <span>Budget Target: <strong className={isDarkMode ? "text-white/80" : "text-slate-700"}>{formatCurrency(cy.netProfitBudget)}</strong></span>
-          <span className={cn("font-mono font-semibold", isNetProfitFav ? (isDarkMode ? "text-emerald-400" : "text-emerald-600") : (isDarkMode ? "text-rose-400" : "text-rose-600"))}>
-            VAR: {netProfitVarAmount >= 0 ? '+' : ''}{formatCurrency(netProfitVarAmount)}
-          </span>
-        </div>
-      </div>
-
-      {/* CARD 3: Depreciation (YTD) */}
-      <div className={cn(
-        "backdrop-blur-lg rounded-xl p-5 relative overflow-hidden transition-all duration-300 hover:-translate-y-1 border flex flex-col justify-between",
-        isDarkMode 
-          ? "bg-white/5 border-white/10 text-white" 
-          : "bg-white/90 border-slate-200/90 text-slate-900 shadow-md"
-      )}>
-        <div className={cn(
-          "absolute top-0 right-0 w-24 h-24 rounded-full -mr-10 -mt-10 blur-2xl",
-          isDarkMode ? "bg-amber-500/10" : "bg-amber-500/20"
-        )}></div>
-        <div>
-          <div className="flex justify-between items-start mb-2">
-            <span className={cn(
-              "text-xs font-semibold uppercase tracking-wider block",
-              isDarkMode ? "text-white/60" : "text-slate-500"
-            )}>
-              Depreciation <span className="normal-case opacity-75">({ytdRangeText})</span>
-            </span>
-            <span className={cn(
-              "px-2 py-0.5 rounded text-[10px] font-bold border",
-              isDepFav 
-                ? (isDarkMode ? "bg-[#10B981]/15 text-[#10B981] border-[#10B981]/30" : "bg-emerald-50 text-emerald-700 border-emerald-300")
-                : (isDarkMode ? "bg-[#EF4444]/15 text-[#EF4444] border-[#EF4444]/30" : "bg-rose-50 text-rose-700 border-rose-300")
-            )}>
-              {depVarPct <= 0 ? '' : '+'}{formatPercent(depVarPct)} {isDepFav ? 'FAV' : 'UNFAV'}
-            </span>
-          </div>
-
-          <div className={cn(
-            "text-3xl font-light tracking-tight my-1",
-            isDarkMode ? "text-[#D4AF37]" : "text-[#B48A1D]"
-          )}>
-            {formatCurrency(cy.depActual)}
-          </div>
-        </div>
-
-        <div className={cn(
-          "mt-3 pt-3 border-t text-[11px] flex items-center justify-between font-medium",
-          isDarkMode ? "border-white/5 text-white/50" : "border-slate-100 text-slate-500"
-        )}>
-          <span>Budget Target: <strong className={isDarkMode ? "text-white/80" : "text-slate-700"}>{formatCurrency(cy.depBudget)}</strong></span>
-          <span className="font-mono">
-            VAR: {depVarAmount >= 0 ? '+' : ''}{formatCurrency(depVarAmount)}
-          </span>
-        </div>
-      </div>
-
-      {/* CARD 4: Achievement Amount & Percentage (YTD) */}
-      <div className={cn(
-        "backdrop-blur-lg rounded-xl p-5 relative overflow-hidden transition-all duration-300 hover:-translate-y-1 border flex flex-col justify-between",
-        isDarkMode 
-          ? "bg-white/5 border-white/10 text-white" 
-          : "bg-white/90 border-slate-200/90 text-slate-900 shadow-md"
-      )}>
-        <div className={cn(
-          "absolute top-0 right-0 w-24 h-24 rounded-full -mr-10 -mt-10 blur-2xl",
-          isDarkMode ? "bg-cyan-500/10" : "bg-cyan-500/20"
-        )}></div>
-        <div>
-          <div className="flex justify-between items-start mb-2">
-            <span className={cn(
-              "text-xs font-semibold uppercase tracking-wider block",
-              isDarkMode ? "text-white/60" : "text-slate-500"
-            )}>
-              Sales Achievement <span className="normal-case opacity-75">({ytdRangeText})</span>
-            </span>
-            <span className={cn(
-              "px-2.5 py-0.5 rounded-full text-[10px] font-bold border flex items-center gap-1",
-              salesAchievementPct >= 100 
-                ? (isDarkMode ? "bg-emerald-500/20 text-emerald-300 border-emerald-500/40" : "bg-emerald-100 text-emerald-800 border-emerald-300")
-                : salesAchievementPct >= 90
-                  ? (isDarkMode ? "bg-amber-500/20 text-amber-300 border-amber-500/40" : "bg-amber-100 text-amber-800 border-amber-300")
-                  : (isDarkMode ? "bg-rose-500/20 text-rose-300 border-rose-500/40" : "bg-rose-100 text-rose-800 border-rose-300")
-            )}>
-              <Target size={11} />
-              {formatPercent(salesAchievementPct)} Achieved
-            </span>
-          </div>
-
-          <div className={cn(
-            "text-3xl font-light tracking-tight my-1",
-            isDarkMode ? "text-[#D4AF37]" : "text-[#B48A1D]"
-          )}>
-            {salesAchievementAmount >= 0 ? '+' : ''}{formatCurrency(salesAchievementAmount)}
-          </div>
-        </div>
-
-        <div className="mt-3 space-y-1.5">
-          <div className="w-full h-2 rounded-full bg-slate-200 dark:bg-white/10 overflow-hidden">
-            <div 
-              className={cn(
-                "h-full rounded-full transition-all duration-500",
-                salesAchievementPct >= 100 
-                  ? "bg-emerald-500" 
-                  : salesAchievementPct >= 90 
-                    ? "bg-amber-500" 
-                    : "bg-rose-500"
-              )}
-              style={{ width: `${Math.min(Math.max(salesAchievementPct, 0), 100)}%` }}
-            ></div>
-          </div>
-          <div className={cn(
-            "text-[10px] flex justify-between font-medium",
-            isDarkMode ? "text-white/40" : "text-slate-500"
-          )}>
-            <span>Actual Sales: {formatCurrency(cy.salesActual)}</span>
-            <span>Target: {formatCurrency(cy.salesBudget)}</span>
-          </div>
-        </div>
-      </div>
-
-      {/* CARD 5: Growth Rate % (YTD) */}
-      <div className={cn(
-        "backdrop-blur-lg rounded-xl p-5 relative overflow-hidden transition-all duration-300 hover:-translate-y-1 border flex flex-col justify-between",
-        isDarkMode 
-          ? "bg-white/5 border-white/10 text-white" 
-          : "bg-white/90 border-slate-200/90 text-slate-900 shadow-md"
-      )}>
-        <div className={cn(
-          "absolute top-0 right-0 w-24 h-24 rounded-full -mr-10 -mt-10 blur-2xl",
-          isDarkMode ? "bg-blue-500/10" : "bg-blue-500/20"
-        )}></div>
-        <div>
-          <div className="flex justify-between items-start mb-2">
-            <span className={cn(
-              "text-xs font-semibold uppercase tracking-wider block",
-              isDarkMode ? "text-white/60" : "text-slate-500"
-            )}>
-              Growth Rate % <span className="normal-case opacity-75">({ytdRangeText})</span>
-            </span>
-            <div className={cn(
-              "px-2.5 py-0.5 rounded-full text-[10px] font-bold border flex items-center gap-1",
-              growthRatePct >= 0 
-                ? (isDarkMode ? "bg-emerald-500/20 text-emerald-300 border-emerald-500/40" : "bg-emerald-100 text-emerald-800 border-emerald-300")
-                : (isDarkMode ? "bg-rose-500/20 text-rose-300 border-rose-500/40" : "bg-rose-100 text-rose-800 border-rose-300")
-            )}>
-              {growthRatePct >= 0 ? <ArrowUpRight size={12} /> : <ArrowDownRight size={12} />}
-              <span>{growthRatePct >= 0 ? '▲' : '▼'} {formatPercent(Math.abs(growthRatePct))} YoY</span>
+            <div>
+              <div className="flex justify-between items-start mb-1">
+                <span className={cn("text-[11px] font-bold uppercase tracking-wider", isDarkMode ? "text-white/60" : "text-slate-500")}>
+                  Depreciation
+                </span>
+                <span className={cn(
+                  "px-2 py-0.5 rounded text-[10px] font-bold border",
+                  isDepFav 
+                    ? (isDarkMode ? "bg-emerald-500/15 text-emerald-400 border-emerald-500/30" : "bg-emerald-50 text-emerald-700 border-emerald-300")
+                    : (isDarkMode ? "bg-amber-500/15 text-amber-400 border-amber-500/30" : "bg-amber-50 text-amber-700 border-amber-300")
+                )}>
+                  {depVarPct <= 0 ? '' : '+'}{formatPercent(depVarPct)} {isDepFav ? 'FAV' : 'UNFAV'}
+                </span>
+              </div>
+              <div className={cn("text-2xl font-light tracking-tight my-1 font-mono", isDarkMode ? "text-[#D4AF37]" : "text-[#B48A1D]")}>
+                {formatCurrency(cur.depActual)}
+              </div>
+            </div>
+            <div className={cn("mt-2 pt-2 border-t text-[11px] flex justify-between font-medium", isDarkMode ? "border-white/5 text-white/50" : "border-slate-100 text-slate-500")}>
+              <span>Budget: <strong className={isDarkMode ? "text-white/80" : "text-slate-800"}>{formatCurrency(cur.depBudget)}</strong></span>
+              <span className="font-mono font-semibold">VAR: {depVar >= 0 ? '+' : ''}{formatCurrency(depVar)}</span>
             </div>
           </div>
 
+          {/* Card 4: Achievement Amount & % */}
           <div className={cn(
-            "text-3xl font-light tracking-tight my-1 flex items-center gap-2",
-            isDarkMode ? "text-[#D4AF37]" : "text-[#B48A1D]"
+            "backdrop-blur-lg rounded-xl p-4 transition-all duration-200 border flex flex-col justify-between hover:border-[#D4AF37]/50",
+            isDarkMode ? "bg-white/5 border-white/10 text-white" : "bg-white/90 border-slate-200 text-slate-900 shadow-md"
           )}>
-            <span>{growthRatePct >= 0 ? '+' : ''}{formatPercent(growthRatePct)}</span>
+            <div>
+              <div className="flex justify-between items-start mb-1">
+                <span className={cn("text-[11px] font-bold uppercase tracking-wider", isDarkMode ? "text-white/60" : "text-slate-500")}>
+                  Achievement Amt & %
+                </span>
+                <span className={cn(
+                  "px-2 py-0.5 rounded-full text-[10px] font-bold border flex items-center gap-1",
+                  achPct >= 100 
+                    ? (isDarkMode ? "bg-emerald-500/20 text-emerald-300 border-emerald-500/40" : "bg-emerald-100 text-emerald-800 border-emerald-300")
+                    : achPct >= 90
+                      ? (isDarkMode ? "bg-amber-500/20 text-amber-300 border-amber-500/40" : "bg-amber-100 text-amber-800 border-amber-300")
+                      : (isDarkMode ? "bg-rose-500/20 text-rose-300 border-rose-500/40" : "bg-rose-100 text-rose-800 border-rose-300")
+                )}>
+                  <Target size={11} />
+                  {formatPercent(achPct)}
+                </span>
+              </div>
+              <div className={cn("text-2xl font-light tracking-tight my-1 font-mono", isDarkMode ? "text-[#D4AF37]" : "text-[#B48A1D]")}>
+                {achAmount >= 0 ? '+' : ''}{formatCurrency(achAmount)}
+              </div>
+            </div>
+            <div className="mt-2 space-y-1">
+              <div className="w-full h-1.5 rounded-full bg-slate-200 dark:bg-white/10 overflow-hidden">
+                <div 
+                  className={cn("h-full rounded-full transition-all duration-500", achPct >= 100 ? "bg-emerald-500" : achPct >= 90 ? "bg-amber-500" : "bg-rose-500")}
+                  style={{ width: `${Math.min(Math.max(achPct, 0), 100)}%` }}
+                ></div>
+              </div>
+              <div className={cn("text-[10px] flex justify-between font-medium", isDarkMode ? "text-white/40" : "text-slate-500")}>
+                <span>Act: {formatCurrency(cur.salesActual)}</span>
+                <span>Bud: {formatCurrency(cur.salesBudget)}</span>
+              </div>
+            </div>
+          </div>
+
+          {/* Card 5: Growth Rate % */}
+          <div className={cn(
+            "backdrop-blur-lg rounded-xl p-4 transition-all duration-200 border flex flex-col justify-between hover:border-[#D4AF37]/50",
+            isDarkMode ? "bg-white/5 border-white/10 text-white" : "bg-white/90 border-slate-200 text-slate-900 shadow-md"
+          )}>
+            <div>
+              <div className="flex justify-between items-start mb-1">
+                <span className={cn("text-[11px] font-bold uppercase tracking-wider", isDarkMode ? "text-white/60" : "text-slate-500")}>
+                  Growth Rate %
+                </span>
+                <span className={cn(
+                  "px-2 py-0.5 rounded-full text-[10px] font-bold border flex items-center gap-1",
+                  growthRate >= 0 
+                    ? (isDarkMode ? "bg-emerald-500/20 text-emerald-300 border-emerald-500/40" : "bg-emerald-100 text-emerald-800 border-emerald-300")
+                    : (isDarkMode ? "bg-rose-500/20 text-rose-300 border-rose-500/40" : "bg-rose-100 text-rose-800 border-rose-300")
+                )}>
+                  {growthRate >= 0 ? <ArrowUpRight size={12} /> : <ArrowDownRight size={12} />}
+                  <span>{growthRate >= 0 ? '▲' : '▼'} {formatPercent(Math.abs(growthRate))} YoY</span>
+                </span>
+              </div>
+              <div className={cn("text-2xl font-light tracking-tight my-1 font-mono", isDarkMode ? "text-[#D4AF37]" : "text-[#B48A1D]")}>
+                {growthRate >= 0 ? '+' : ''}{formatPercent(growthRate)}
+              </div>
+            </div>
+            <div className={cn("mt-2 pt-2 border-t text-[11px] flex justify-between font-medium", isDarkMode ? "border-white/5 text-white/50" : "border-slate-100 text-slate-500")}>
+              <span>CY: <strong className={isDarkMode ? "text-white/80" : "text-slate-800"}>{formatCurrency(cur.salesActual)}</strong></span>
+              <span>PY: <strong className={isDarkMode ? "text-white/80" : "text-slate-800"}>{hasPYData ? formatCurrency(py.salesActual) : 'N/A'}</strong></span>
+            </div>
+          </div>
+
+          {/* Card 6: EBITDA */}
+          <div className={cn(
+            "backdrop-blur-lg rounded-xl p-4 transition-all duration-200 border flex flex-col justify-between hover:border-[#D4AF37]/50",
+            isDarkMode ? "bg-white/5 border-white/10 text-white" : "bg-white/90 border-slate-200 text-slate-900 shadow-md"
+          )}>
+            <div>
+              <div className="flex justify-between items-start mb-1">
+                <span className={cn("text-[11px] font-bold uppercase tracking-wider", isDarkMode ? "text-white/60" : "text-slate-500")}>
+                  EBITDA (NP + Dep)
+                </span>
+                <span className={cn(
+                  "px-2 py-0.5 rounded text-[10px] font-bold border flex items-center gap-0.5",
+                  isEbitdaFav 
+                    ? (isDarkMode ? "bg-emerald-500/15 text-emerald-400 border-emerald-500/30" : "bg-emerald-50 text-emerald-700 border-emerald-300")
+                    : (isDarkMode ? "bg-rose-500/15 text-rose-400 border-rose-500/30" : "bg-rose-50 text-rose-700 border-rose-300")
+                )}>
+                  {isEbitdaFav ? <TrendingUp size={12} /> : <TrendingDown size={12} />}
+                  {ebitdaVarPct >= 0 ? '+' : ''}{formatPercent(ebitdaVarPct)}
+                </span>
+              </div>
+              <div className={cn("text-2xl font-light tracking-tight my-1 font-mono", isDarkMode ? "text-[#D4AF37]" : "text-[#B48A1D]")}>
+                {formatCurrency(cur.ebitdaActual)}
+              </div>
+            </div>
+            <div className={cn("mt-2 pt-2 border-t text-[11px] flex justify-between font-medium", isDarkMode ? "border-white/5 text-white/50" : "border-slate-100 text-slate-500")}>
+              <span>Target: <strong className={isDarkMode ? "text-white/80" : "text-slate-800"}>{formatCurrency(cur.ebitdaBudget)}</strong></span>
+              <span className={cn("font-mono font-bold", isEbitdaFav ? "text-emerald-500" : "text-rose-500")}>
+                VAR: {ebitdaVar >= 0 ? '+' : ''}{formatCurrency(ebitdaVar)}
+              </span>
+            </div>
+          </div>
+
+          {/* Card 7: COGS & Direct Overheads */}
+          <div className={cn(
+            "backdrop-blur-lg rounded-xl p-4 transition-all duration-200 border flex flex-col justify-between hover:border-[#D4AF37]/50",
+            isDarkMode ? "bg-white/5 border-white/10 text-white" : "bg-white/90 border-slate-200 text-slate-900 shadow-md"
+          )}>
+            <div>
+              <div className="flex justify-between items-start mb-1">
+                <span className={cn("text-[11px] font-bold uppercase tracking-wider", isDarkMode ? "text-white/60" : "text-slate-500")}>
+                  COGS & Direct Costs
+                </span>
+                <span className={cn(
+                  "px-2 py-0.5 rounded text-[10px] font-bold border",
+                  isCogsFav 
+                    ? (isDarkMode ? "bg-emerald-500/15 text-emerald-400 border-emerald-500/30" : "bg-emerald-50 text-emerald-700 border-emerald-300")
+                    : (isDarkMode ? "bg-rose-500/15 text-rose-400 border-rose-500/30" : "bg-rose-50 text-rose-700 border-rose-300")
+                )}>
+                  {cogsVarPct <= 0 ? '' : '+'}{formatPercent(cogsVarPct)} {isCogsFav ? 'FAV' : 'UNFAV'}
+                </span>
+              </div>
+              <div className={cn("text-2xl font-light tracking-tight my-1 font-mono", isDarkMode ? "text-[#D4AF37]" : "text-[#B48A1D]")}>
+                {formatCurrency(cur.cogsActual)}
+              </div>
+            </div>
+            <div className={cn("mt-2 pt-2 border-t text-[11px] flex justify-between font-medium", isDarkMode ? "border-white/5 text-white/50" : "border-slate-100 text-slate-500")}>
+              <span>Budget: <strong className={isDarkMode ? "text-white/80" : "text-slate-800"}>{formatCurrency(cur.cogsBudget)}</strong></span>
+              <span className="font-mono font-semibold">VAR: {cogsVar >= 0 ? '+' : ''}{formatCurrency(cogsVar)}</span>
+            </div>
+          </div>
+
+          {/* Card 8: OPEX */}
+          <div className={cn(
+            "backdrop-blur-lg rounded-xl p-4 transition-all duration-200 border flex flex-col justify-between hover:border-[#D4AF37]/50",
+            isDarkMode ? "bg-white/5 border-white/10 text-white" : "bg-white/90 border-slate-200 text-slate-900 shadow-md"
+          )}>
+            <div>
+              <div className="flex justify-between items-start mb-1">
+                <span className={cn("text-[11px] font-bold uppercase tracking-wider", isDarkMode ? "text-white/60" : "text-slate-500")}>
+                  OPEX (SM & GA)
+                </span>
+                <span className={cn(
+                  "px-2 py-0.5 rounded text-[10px] font-bold border",
+                  isOpexFav 
+                    ? (isDarkMode ? "bg-emerald-500/15 text-emerald-400 border-emerald-500/30" : "bg-emerald-50 text-emerald-700 border-emerald-300")
+                    : (isDarkMode ? "bg-rose-500/15 text-rose-400 border-rose-500/30" : "bg-rose-50 text-rose-700 border-rose-300")
+                )}>
+                  {opexVarPct <= 0 ? '' : '+'}{formatPercent(opexVarPct)} {isOpexFav ? 'FAV' : 'UNFAV'}
+                </span>
+              </div>
+              <div className={cn("text-2xl font-light tracking-tight my-1 font-mono", isDarkMode ? "text-[#D4AF37]" : "text-[#B48A1D]")}>
+                {formatCurrency(cur.opexActual)}
+              </div>
+            </div>
+            <div className={cn("mt-2 pt-2 border-t text-[11px] flex justify-between font-medium", isDarkMode ? "border-white/5 text-white/50" : "border-slate-100 text-slate-500")}>
+              <span>Budget: <strong className={isDarkMode ? "text-white/80" : "text-slate-800"}>{formatCurrency(cur.opexBudget)}</strong></span>
+              <span className="font-mono font-semibold">VAR: {opexVar >= 0 ? '+' : ''}{formatCurrency(opexVar)}</span>
+            </div>
           </div>
         </div>
-
-        <div className={cn(
-          "mt-3 pt-3 border-t text-[11px] flex items-center justify-between font-medium",
-          isDarkMode ? "border-white/5 text-white/50" : "border-slate-100 text-slate-500"
-        )}>
-          <span>CY YTD Sales: <strong className={isDarkMode ? "text-white/80" : "text-slate-700"}>{formatCurrency(cy.salesActual)}</strong></span>
-          <span>PY YTD: <strong className={isDarkMode ? "text-white/80" : "text-slate-700"}>{hasPYData ? formatCurrency(py.salesActual) : 'N/A'}</strong></span>
-        </div>
       </div>
+    );
+  };
 
-      {/* CARD 6: Overall Budget Variance & Health (YTD) */}
-      <div className={cn(
-        "backdrop-blur-lg rounded-xl p-5 relative overflow-hidden transition-all duration-300 hover:-translate-y-1 border flex flex-col justify-between",
-        isDarkMode 
-          ? "bg-white/5 border-white/10 text-white" 
-          : "bg-white/90 border-slate-200/90 text-slate-900 shadow-md"
-      )}>
-        <div className={cn(
-          "absolute top-0 right-0 w-24 h-24 rounded-full -mr-10 -mt-10 blur-2xl",
-          isDarkMode ? "bg-purple-500/10" : "bg-purple-500/20"
-        )}></div>
+  const ytdPeriodText = `Jan - ${selectedMonthLabel}`;
+
+  return (
+    <div className="flex flex-col gap-8">
+      {/* View Switcher Tab Header */}
+      <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4 border-b pb-3 border-slate-200 dark:border-white/10">
         <div>
-          <div className="flex justify-between items-start mb-2">
-            <span className={cn(
-              "text-xs font-semibold uppercase tracking-wider block",
-              isDarkMode ? "text-white/60" : "text-slate-500"
-            )}>
-              Overall Budget Health <span className="normal-case opacity-75">({ytdRangeText})</span>
-            </span>
-            <span className={cn(
-              "px-2.5 py-0.5 rounded-full text-[10px] font-bold border flex items-center gap-1",
-              isOverallFav 
-                ? (isDarkMode ? "bg-emerald-500/20 text-emerald-300 border-emerald-500/40" : "bg-emerald-100 text-emerald-800 border-emerald-300")
-                : (isDarkMode ? "bg-rose-500/20 text-rose-300 border-rose-500/40" : "bg-rose-100 text-rose-800 border-rose-300")
-            )}>
-              <ShieldCheck size={11} />
-              {isOverallFav ? 'ON TRACK (FAVORABLE)' : 'OFF TRACK (UNFAVORABLE)'}
-            </span>
-          </div>
-
-          <div className={cn(
-            "text-3xl font-light tracking-tight my-1",
-            isDarkMode ? "text-[#D4AF37]" : "text-[#B48A1D]"
-          )}>
-            {overallVarAmount >= 0 ? '+' : ''}{formatCurrency(overallVarAmount)}
-          </div>
+          <h2 className={cn("text-lg font-bold tracking-tight flex items-center gap-2", isDarkMode ? "text-white" : "text-slate-900")}>
+            <Layers className="text-[#D4AF37]" size={20} />
+            Dual Executive KPI Canvas (16 Glass Cards Total)
+          </h2>
+          <p className={cn("text-xs font-medium", isDarkMode ? "text-white/50" : "text-slate-500")}>
+            Comprehensive performance audit comparing Particular Month vs. Cumulative YTD Subtotals
+          </p>
         </div>
 
         <div className={cn(
-          "mt-3 pt-3 border-t text-[11px] flex items-center justify-between font-medium",
-          isDarkMode ? "border-white/5 text-white/50" : "border-slate-100 text-slate-500"
+          "flex items-center p-1 rounded-lg border text-xs font-semibold self-start sm:self-auto",
+          isDarkMode ? "bg-white/5 border-white/10 text-white" : "bg-slate-100 border-slate-300 text-slate-700"
         )}>
-          <span>Execution Var %: <strong className={cn("font-mono font-semibold", isOverallFav ? (isDarkMode ? "text-emerald-400" : "text-emerald-600") : (isDarkMode ? "text-rose-400" : "text-rose-600"))}>{overallExecutionVarPct >= 0 ? '+' : ''}{formatPercent(overallExecutionVarPct)}</strong></span>
-          <span>Status: <strong className={isDarkMode ? "text-white/80" : "text-slate-700"}>{isOverallFav ? 'FAVORABLE' : 'UNFAVORABLE'}</strong></span>
+          <button
+            onClick={() => setActiveTab('all')}
+            className={cn(
+              "px-3 py-1.5 rounded-md transition-all cursor-pointer",
+              activeTab === 'all' 
+                ? "bg-[#D4AF37] text-black font-bold shadow-sm" 
+                : (isDarkMode ? "hover:text-white" : "hover:text-slate-900")
+            )}
+          >
+            All 16 Cards
+          </button>
+          <button
+            onClick={() => setActiveTab('monthly')}
+            className={cn(
+              "px-3 py-1.5 rounded-md transition-all cursor-pointer",
+              activeTab === 'monthly' 
+                ? "bg-[#D4AF37] text-black font-bold shadow-sm" 
+                : (isDarkMode ? "hover:text-white" : "hover:text-slate-900")
+            )}
+          >
+            Particular Month ({selectedMonthLabel})
+          </button>
+          <button
+            onClick={() => setActiveTab('ytd')}
+            className={cn(
+              "px-3 py-1.5 rounded-md transition-all cursor-pointer",
+              activeTab === 'ytd' 
+                ? "bg-[#D4AF37] text-black font-bold shadow-sm" 
+                : (isDarkMode ? "hover:text-white" : "hover:text-slate-900")
+            )}
+          >
+            Cumulative YTD ({ytdPeriodText})
+          </button>
         </div>
       </div>
+
+      {/* SECTION A: Particular Month KPIs (8 Cards) */}
+      {(activeTab === 'all' || activeTab === 'monthly') && (
+        <CardGrid
+          title="SECTION A: Particular Month KPIs (8 Cards)"
+          subtitle={`Single Month Execution Audit for Year ${currentYear}`}
+          cur={monthMetrics}
+          py={pyMonthMetrics}
+          periodLabel={selectedMonthLabel}
+          badgePrefix="Month"
+        />
+      )}
+
+      {/* SECTION B: Cumulative YTD Subtotal KPIs (8 Cards) */}
+      {(activeTab === 'all' || activeTab === 'ytd') && (
+        <CardGrid
+          title="SECTION B: Cumulative YTD Subtotal KPIs (8 Cards)"
+          subtitle={`Year-to-Date Accumulated Performance up to ${selectedMonthLabel}`}
+          cur={ytdMetrics}
+          py={pyYTDMetrics}
+          periodLabel={ytdPeriodText}
+          badgePrefix="YTD Subtotal"
+        />
+      )}
     </div>
   );
 }

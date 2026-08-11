@@ -32,9 +32,9 @@ export default function App() {
   };
 
   const [filters, setFilters] = useState({
+    year: '',
     month: '',
-    functionalArea: '',
-    costCenter: '',
+    groupAccountNumber: '',
     misHead: ''
   });
 
@@ -44,6 +44,19 @@ export default function App() {
     try {
       const processed = await fetchAndProcessData();
       setData(processed);
+
+      // Auto-set initial default year & month filters from processed dataset
+      const years = Array.from(new Set(processed.map(d => d.year).filter(Boolean))).sort((a, b) => parseInt(b) - parseInt(a));
+      const months = Array.from(new Set(processed.map(d => d.month).filter(Boolean)));
+      
+      const defaultYear = years[0] || '2026';
+      const defaultMonth = months[months.length - 1] || 'Dec';
+
+      setFilters(prev => ({
+        ...prev,
+        year: prev.year || defaultYear,
+        month: prev.month || defaultMonth
+      }));
     } catch (err: any) {
       setError(err.message || 'Failed to load data');
     } finally {
@@ -57,9 +70,9 @@ export default function App() {
 
   const filteredData = useMemo(() => {
     return data.filter(row => {
+      if (filters.year && row.year !== filters.year) return false;
       if (filters.month && row.month !== filters.month) return false;
-      if (filters.functionalArea && row.functionalArea !== filters.functionalArea) return false;
-      if (filters.costCenter && row.costCenter !== filters.costCenter) return false;
+      if (filters.groupAccountNumber && row.groupAccountNumber !== filters.groupAccountNumber) return false;
       if (filters.misHead && row.misHead !== filters.misHead) return false;
       return true;
     });
@@ -128,7 +141,7 @@ export default function App() {
         
         <div className="flex flex-col lg:flex-row gap-6">
           <div className="flex-[1.5] flex flex-col">
-            <PerformanceChart data={filteredData} isDarkMode={isDarkMode} />
+            <PerformanceChart data={data} filters={filters} isDarkMode={isDarkMode} />
           </div>
           <div className="flex-1 flex flex-col">
             <MISHeadTable data={filteredData} isDarkMode={isDarkMode} />
