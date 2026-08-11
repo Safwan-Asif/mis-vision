@@ -27,6 +27,7 @@ export interface ProcessedData {
   groupAccountNumber: string;
   date: string;
   month: string; 
+  monthIndex: number;
   year: string;
   actual: number;
   budget: number;

@@ -1,14 +1,13 @@
 import { useMemo } from 'react';
 import { ProcessedData } from '../types';
-import { GlassCard } from './GlassCard';
 import { formatCurrency, formatPercent, cn } from '../lib/utils';
-import { TrendingUp, TrendingDown } from 'lucide-react';
 
 interface MISHeadTableProps {
   data: ProcessedData[];
+  isDarkMode: boolean;
 }
 
-export function MISHeadTable({ data }: MISHeadTableProps) {
+export function MISHeadTable({ data, isDarkMode }: MISHeadTableProps) {
   const aggregatedData = useMemo(() => {
     const map: Record<string, { misHead: string, actual: number, budget: number, isRevenue: boolean }> = {};
     
@@ -48,25 +47,42 @@ export function MISHeadTable({ data }: MISHeadTableProps) {
   }, [data]);
 
   return (
-    <div className="flex-1 bg-white/5 backdrop-blur-lg border border-white/10 rounded-xl flex flex-col p-4 sm:p-6 overflow-hidden">
-      <h2 className="text-sm font-semibold text-white/80 uppercase tracking-widest mb-4">MIS Head Breakdown</h2>
+    <div className={cn(
+      "flex-1 backdrop-blur-lg border rounded-xl flex flex-col p-4 sm:p-6 overflow-hidden transition-colors",
+      isDarkMode 
+        ? "bg-white/5 border-white/10 text-white" 
+        : "bg-white/90 border-slate-200/90 text-slate-900 shadow-md"
+    )}>
+      <h2 className={cn("text-sm font-semibold uppercase tracking-widest mb-4", isDarkMode ? "text-white/80" : "text-slate-800")}>
+        MIS Head Breakdown
+      </h2>
       <div className="flex-1 overflow-x-auto pr-2">
         <table className="w-full text-left text-sm border-separate border-spacing-y-2">
           <thead>
-            <tr className="text-white/40 uppercase text-xs tracking-widest">
+            <tr className={cn("uppercase text-xs tracking-widest font-semibold", isDarkMode ? "text-white/40" : "text-slate-500")}>
               <th className="pb-3">Category</th>
               <th className="pb-3 text-right">Actual ($)</th>
               <th className="pb-3 text-right">Var %</th>
             </tr>
           </thead>
-          <tbody className="text-white/80">
+          <tbody className={isDarkMode ? "text-white/80" : "text-slate-800"}>
             {aggregatedData.map((row, i) => (
-              <tr key={i} className="bg-white/[0.02] hover:bg-white/[0.04] transition-colors">
-                <td className="p-3 sm:px-4 rounded-l border-y border-l border-white/5">{row.misHead}</td>
-                <td className="p-3 sm:px-4 text-right border-y border-white/5">{formatCurrency(row.actual)}</td>
+              <tr key={i} className={cn(
+                "transition-colors",
+                isDarkMode ? "bg-white/[0.02] hover:bg-white/[0.04]" : "bg-slate-50 hover:bg-slate-100"
+              )}>
+                <td className={cn("p-3 sm:px-4 rounded-l border-y border-l", isDarkMode ? "border-white/5" : "border-slate-200")}>
+                  {row.misHead}
+                </td>
+                <td className={cn("p-3 sm:px-4 text-right border-y", isDarkMode ? "border-white/5" : "border-slate-200")}>
+                  {formatCurrency(row.actual)}
+                </td>
                 <td className={cn(
-                  "p-3 sm:px-4 text-right font-bold rounded-r border-y border-r border-white/5",
-                  row.status === 'favorable' ? "text-[#10B981]" : "text-[#EF4444]"
+                  "p-3 sm:px-4 text-right font-bold rounded-r border-y border-r",
+                  isDarkMode ? "border-white/5" : "border-slate-200",
+                  row.status === 'favorable' 
+                    ? (isDarkMode ? "text-[#10B981]" : "text-emerald-600") 
+                    : (isDarkMode ? "text-[#EF4444]" : "text-rose-600")
                 )}>
                   {row.variancePercent > 0 ? '+' : ''}{formatPercent(row.variancePercent)}
                 </td>
@@ -74,7 +90,7 @@ export function MISHeadTable({ data }: MISHeadTableProps) {
             ))}
             {aggregatedData.length === 0 && (
               <tr>
-                <td colSpan={3} className="p-4 text-center text-white/50">
+                <td colSpan={3} className={cn("p-4 text-center", isDarkMode ? "text-white/50" : "text-slate-400")}>
                   No data available for the selected filters.
                 </td>
               </tr>
@@ -85,3 +101,4 @@ export function MISHeadTable({ data }: MISHeadTableProps) {
     </div>
   );
 }
+

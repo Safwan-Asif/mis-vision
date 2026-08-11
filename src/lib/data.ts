@@ -58,14 +58,51 @@ function processRawData(rawData: RawData[]): ProcessedData[] {
     }
     
     // Extract date parts
-    const dateStr = row['Attribute'] || '';
+    const dateStr = (row['Attribute'] || '').trim();
     let month = '';
     let year = '';
+    let monthIndex = 0;
+
+    const MONTH_NAMES = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+
     if (dateStr) {
       const d = new Date(dateStr);
       if (!isNaN(d.getTime())) {
-        month = d.toLocaleString('default', { month: 'short' });
+        monthIndex = d.getMonth();
+        month = MONTH_NAMES[monthIndex];
         year = d.getFullYear().toString();
+      } else {
+        // Fallback custom string parsing
+        for (let i = 0; i < MONTH_NAMES.length; i++) {
+          if (new RegExp(MONTH_NAMES[i], 'i').test(dateStr)) {
+            monthIndex = i;
+            month = MONTH_NAMES[i];
+            const ym = dateStr.match(/\b(20\d\d|\d\d)\b/);
+            if (ym) {
+              year = ym[1].length === 2 ? `20${ym[1]}` : ym[1];
+            }
+            break;
+          }
+        }
+        if (!month) {
+          const parts = dateStr.split(/[./-]/);
+          if (parts.length >= 2) {
+            let m = 0;
+            let y = '';
+            if (parts[0].length === 4) {
+              y = parts[0];
+              m = parseInt(parts[1], 10);
+            } else if (parts[1].length === 4) {
+              y = parts[1];
+              m = parseInt(parts[0], 10);
+            }
+            if (m >= 1 && m <= 12) {
+              monthIndex = m - 1;
+              month = MONTH_NAMES[monthIndex];
+              year = y || '2024';
+            }
+          }
+        }
       }
     }
     
@@ -80,6 +117,7 @@ function processRawData(rawData: RawData[]): ProcessedData[] {
       groupAccountNumber: row['Group Account Number'] || '',
       date: dateStr,
       month: month,
+      monthIndex: monthIndex,
       year: year,
       actual: rawActual,
       budget: rawBudget,
