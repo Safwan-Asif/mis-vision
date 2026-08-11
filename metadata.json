@@ -1,0 +1,6 @@
+{
+  "name": "United Bakeries MIS",
+  "description": "Executive Management Information System Dashboard for United Bakeries.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
