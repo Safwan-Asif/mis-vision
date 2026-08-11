@@ -151,7 +151,9 @@ export function LedgerTable({ data, allData = [], filters, isDarkMode }: LedgerT
       'Current Year Variance ($)': row.cyVariance,
       'Last Year Variance ($)': row.pyVariance,
       'Variance YoY Comparison ($)': row.varianceYoY,
-      'Performance Status': row.isGrowth ? 'Growth 📈' : 'Decline 📉'
+      'Performance Status': row.isGrowth 
+        ? (row.isRevenue ? 'Growth 📈' : 'Savings/Growth 📈') 
+        : (row.isRevenue ? 'Decline 📉' : 'Overrun/Decline 📉')
     }));
 
     const csv = Papa.unparse(csvData);
@@ -347,7 +349,7 @@ export function LedgerTable({ data, allData = [], filters, isDarkMode }: LedgerT
                           ? "bg-emerald-500/15 text-emerald-400 border-emerald-500/30" 
                           : "bg-emerald-50 text-emerald-700 border-emerald-300"
                       )}>
-                        Growth 📈
+                        {row.isRevenue ? 'Growth 📈' : 'Savings/Growth 📈'}
                       </span>
                     ) : (
                       <span className={cn(
@@ -356,7 +358,7 @@ export function LedgerTable({ data, allData = [], filters, isDarkMode }: LedgerT
                           ? "bg-rose-500/15 text-rose-400 border-rose-500/30" 
                           : "bg-rose-50 text-rose-700 border-rose-300"
                       )}>
-                        Decline 📉
+                        {row.isRevenue ? 'Decline 📉' : 'Overrun/Decline 📉'}
                       </span>
                     )}
                   </td>
