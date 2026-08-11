@@ -106,6 +106,27 @@ function processRawData(rawData: RawData[]): ProcessedData[] {
       }
     }
     
+    const rawGLFull = row['G/L Account / G/L Account5'] || row['G/L Account5'] || row['G/L Account'] || '';
+    let rawGLNumber = (row['G/L Account'] || '').trim();
+    let rawGLDesc = (row['G/L Account5'] || '').trim();
+
+    if (!rawGLNumber || !rawGLDesc) {
+      if (rawGLFull.includes(' - ')) {
+        const parts = rawGLFull.split(' - ');
+        rawGLNumber = rawGLNumber || parts[0].trim();
+        rawGLDesc = rawGLDesc || parts.slice(1).join(' - ').trim();
+      } else {
+        const match = rawGLFull.match(/^(\d+[\w-]*)\s*(.*)$/);
+        if (match) {
+          rawGLNumber = rawGLNumber || match[1];
+          rawGLDesc = rawGLDesc || match[2] || match[1];
+        } else {
+          rawGLNumber = rawGLNumber || rawGLFull;
+          rawGLDesc = rawGLDesc || rawGLFull;
+        }
+      }
+    }
+
     return {
       id: `row-${index}`,
       companyCode: row['Company Code'] || '',
@@ -113,7 +134,9 @@ function processRawData(rawData: RawData[]): ProcessedData[] {
       misHead: misHead,
       functionalArea: row['Functional Area3'] || '',
       costCenter: row['Cost Center / Cost Center4'] || row['Cost Center4'] || row['Cost Center'] || '',
-      glAccount: row['G/L Account / G/L Account5'] || row['G/L Account5'] || row['G/L Account'] || '',
+      glAccount: rawGLFull,
+      glAccountNumber: rawGLNumber || rawGLFull,
+      glAccountDescription: rawGLDesc || rawGLFull,
       groupAccountNumber: row['Group Account Number'] || '',
       date: dateStr,
       month: month,

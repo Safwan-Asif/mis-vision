@@ -148,7 +148,7 @@ export default function App() {
           </div>
         </div>
         
-        <LedgerTable data={filteredData} isDarkMode={isDarkMode} />
+        <LedgerTable data={filteredData} allData={data} filters={filters} isDarkMode={isDarkMode} />
       </div>
     </div>
   );

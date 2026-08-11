@@ -24,6 +24,8 @@ export interface ProcessedData {
   functionalArea: string;
   costCenter: string;
   glAccount: string;
+  glAccountNumber: string;
+  glAccountDescription: string;
   groupAccountNumber: string;
   date: string;
   month: string; 
