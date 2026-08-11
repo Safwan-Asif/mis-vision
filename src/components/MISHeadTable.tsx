@@ -1,7 +1,7 @@
-import { useMemo } from 'react';
+import { useMemo, useState } from 'react';
 import { ProcessedData } from '../types';
 import { formatCurrency, formatPercent, cn } from '../lib/utils';
-import { FileText } from 'lucide-react';
+import { FileText, ChevronDown, ChevronRight, Eye, EyeOff } from 'lucide-react';
 
 interface MISHeadTableProps {
   data: ProcessedData[];
@@ -20,7 +20,69 @@ interface PLRow {
   isRevenueLike?: boolean;
 }
 
+// Maps child row keys to their respective subtotal parent keys
+const rowParentMap: Record<string, string> = {
+  'a': 'sub_net_sales',
+  'b': 'sub_net_sales',
+  'c': 'sub_mom',
+  'd1': 'sub_prod',
+  'd2': 'sub_prod',
+  'd3': 'sub_prod',
+  'd4': 'sub_prod',
+  'e1': 'sub_ga',
+  'e2': 'sub_ga',
+  'e3': 'sub_ga',
+  'f1': 'sub_sm',
+  'f2': 'sub_sm',
+  'f3': 'sub_sm',
+  'f4': 'sub_sm',
+  'other_inc': 'sub_npbt',
+  'fin_chg': 'sub_npbt',
+  'tax': 'final_npat',
+};
+
 export function MISHeadTable({ data, isDarkMode }: MISHeadTableProps) {
+  // Collapsed by default for executive summary view
+  const [collapsedGroups, setCollapsedGroups] = useState<Record<string, boolean>>({
+    sub_net_sales: true,
+    sub_mom: true,
+    sub_prod: true,
+    sub_ga: true,
+    sub_sm: true,
+    sub_npbt: true,
+    final_npat: true,
+  });
+
+  const isAllExpanded = useMemo(() => {
+    return Object.values(collapsedGroups).every(v => !v);
+  }, [collapsedGroups]);
+
+  const toggleAll = () => {
+    const nextState = !isAllExpanded;
+    setCollapsedGroups({
+      sub_net_sales: !nextState,
+      sub_mom: !nextState,
+      sub_prod: !nextState,
+      sub_ga: !nextState,
+      sub_sm: !nextState,
+      sub_npbt: !nextState,
+      final_npat: !nextState,
+    });
+  };
+
+  const toggleGroup = (key: string) => {
+    setCollapsedGroups(prev => ({
+      ...prev,
+      [key]: !prev[key]
+    }));
+  };
+
+  const isRowVisible = (rowKey: string) => {
+    const parentKey = rowParentMap[rowKey];
+    if (!parentKey) return true; // subtotal and total rows are always visible
+    return !collapsedGroups[parentKey];
+  };
+
   const plData = useMemo(() => {
     // 1. Accumulate raw values by normalized key
     const totals: Record<string, { actual: number; budget: number }> = {};
@@ -159,37 +221,37 @@ export function MISHeadTable({ data, isDarkMode }: MISHeadTableProps) {
 
     // 4. Construct FIXED, UNCHANGING P&L SEQUENCING
     const rows: PLRow[] = [
-      makeRow('a', 'a. SALES/REVENUE', a, false, false, true),
-      makeRow('b', 'b. SALES RETURN', b, false, false, false),
-      makeRow('sub_net_sales', '[SUBTOTAL] Net Sales', netSales, true, false, true),
+      makeRow('a', 'SALES/REVENUE', a, false, false, true),
+      makeRow('b', 'SALES RETURN', b, false, false, false),
+      makeRow('sub_net_sales', 'Net Sales', netSales, true, false, true),
       
-      makeRow('c', 'c. MATERIAL COST', c, false, false, false),
-      makeRow('sub_mom', '[SUBTOTAL] MOM (Margin Over Material)', mom, true, false, true),
+      makeRow('c', 'MATERIAL COST', c, false, false, false),
+      makeRow('sub_mom', 'MOM (Margin Over Material)', mom, true, false, true),
 
-      makeRow('d1', 'd. DC - OTHER OVERHEADS', d1, false, false, false),
-      makeRow('d2', 'd. DC - MANPOWER COST', d2, false, false, false),
-      makeRow('d3', 'd. DC - UTILITY COST', d3, false, false, false),
-      makeRow('d4', 'd. DC - DEPRECIATION', d4, false, false, false),
-      makeRow('sub_prod', '[SUBTOTAL] Production Overheads', prodOverheads, true, false, false),
-      makeRow('sub_gp', '[SUBTOTAL] Gross Profit', grossProfit, true, false, true),
+      makeRow('d1', 'DC - OTHER OVERHEADS', d1, false, false, false),
+      makeRow('d2', 'DC - MANPOWER COST', d2, false, false, false),
+      makeRow('d3', 'DC - UTILITY COST', d3, false, false, false),
+      makeRow('d4', 'DC - DEPRECIATION', d4, false, false, false),
+      makeRow('sub_prod', 'Production Overheads', prodOverheads, true, false, false),
+      makeRow('sub_gp', 'Gross Profit', grossProfit, true, false, true),
 
-      makeRow('e1', 'e. GA - OTHER OVERHEADS', e1, false, false, false),
-      makeRow('e2', 'e. GA - MANPOWER COST', e2, false, false, false),
-      makeRow('e3', 'e. GA - DEPRECIATION', e3, false, false, false),
-      makeRow('sub_ga', '[SUBTOTAL] GA Overheads', gaOverheads, true, false, false),
+      makeRow('e1', 'GA - OTHER OVERHEADS', e1, false, false, false),
+      makeRow('e2', 'GA - MANPOWER COST', e2, false, false, false),
+      makeRow('e3', 'GA - DEPRECIATION', e3, false, false, false),
+      makeRow('sub_ga', 'GA Overheads', gaOverheads, true, false, false),
 
-      makeRow('f1', 'f. SM - OTHER OVERHEADS', f1, false, false, false),
-      makeRow('f2', 'f. SM - MANPOWER COST', f2, false, false, false),
-      makeRow('f3', 'f. SM - VEHICLE FUEL', f3, false, false, false),
-      makeRow('f4', 'f. SM - DEPRECIATION', f4, false, false, false),
-      makeRow('sub_sm', '[SUBTOTAL] SM Overheads', smOverheads, true, false, false),
+      makeRow('f1', 'SM - OTHER OVERHEADS', f1, false, false, false),
+      makeRow('f2', 'SM - MANPOWER COST', f2, false, false, false),
+      makeRow('f3', 'SM - VEHICLE FUEL', f3, false, false, false),
+      makeRow('f4', 'SM - DEPRECIATION', f4, false, false, false),
+      makeRow('sub_sm', 'SM Overheads', smOverheads, true, false, false),
 
       makeRow('other_inc', 'OTHER INCOME', otherInc, false, false, true),
       makeRow('fin_chg', 'FINANCE CHARGES', finChg, false, false, false),
-      makeRow('sub_npbt', '[SUBTOTAL] NPBT (Net Profit Before Tax)', npbt, true, false, true),
+      makeRow('sub_npbt', 'NPBT (Net Profit Before Tax)', npbt, true, false, true),
 
-      makeRow('tax', 'h. TAX EXPENSE', taxExp, false, false, false),
-      makeRow('final_npat', '[FINAL TOTAL] NPAT (Net Profit After Tax)', npat, true, true, true)
+      makeRow('tax', 'TAX EXPENSE', taxExp, false, false, false),
+      makeRow('final_npat', 'NPAT (Net Profit After Tax)', npat, true, true, true)
     ];
 
     return rows;
@@ -202,7 +264,7 @@ export function MISHeadTable({ data, isDarkMode }: MISHeadTableProps) {
         ? "bg-white/5 border-white/10 text-white" 
         : "bg-white/90 border-slate-200 text-slate-900"
     )}>
-      <div className="flex items-center justify-between mb-4">
+      <div className="flex items-center justify-between gap-4 mb-4">
         <div>
           <h2 className="text-base font-bold tracking-tight flex items-center gap-2">
             <FileText className="text-[#D4AF37]" size={18} />
@@ -212,6 +274,20 @@ export function MISHeadTable({ data, isDarkMode }: MISHeadTableProps) {
             Fixed, unchanging P&L financial sequencing & subtotal hierarchy
           </p>
         </div>
+
+        {/* Dual-State Pill Toggle Control */}
+        <button
+          onClick={toggleAll}
+          className={cn(
+            "px-3.5 py-1.5 rounded-full text-xs font-semibold tracking-wide transition-all border flex items-center gap-2 cursor-pointer shadow-sm shrink-0",
+            isDarkMode 
+              ? "bg-[#D4AF37]/10 text-[#D4AF37] border-[#D4AF37]/35 hover:bg-[#D4AF37]/20" 
+              : "bg-amber-500/10 text-[#B48A1D] border-amber-500/30 hover:bg-amber-500/20"
+          )}
+        >
+          {isAllExpanded ? <EyeOff size={13} /> : <Eye size={13} />}
+          <span>{isAllExpanded ? "Collapse All" : "Expand All"}</span>
+        </button>
       </div>
 
       <div className="flex-1 overflow-x-auto rounded-lg border border-slate-200/60 dark:border-white/10">
@@ -230,9 +306,15 @@ export function MISHeadTable({ data, isDarkMode }: MISHeadTableProps) {
           </thead>
           <tbody className={cn("divide-y", isDarkMode ? "divide-white/5" : "divide-slate-200/70")}>
             {plData.map((row) => {
+              if (!isRowVisible(row.key)) return null;
+
               const isFavorable = row.isRevenueLike 
                 ? row.actual >= row.budget 
                 : row.actual <= row.budget;
+
+              const isCollapsible = [
+                'sub_net_sales', 'sub_mom', 'sub_prod', 'sub_ga', 'sub_sm', 'sub_npbt', 'final_npat'
+              ].includes(row.key);
 
               return (
                 <tr 
@@ -247,15 +329,31 @@ export function MISHeadTable({ data, isDarkMode }: MISHeadTableProps) {
                   )}
                 >
                   {/* Category Label */}
-                  <td className={cn(
-                    "py-2.5 px-3.5 whitespace-nowrap",
-                    row.isFinalTotal 
-                      ? (isDarkMode ? "text-[#D4AF37] font-black text-xs" : "text-[#B48A1D] font-black text-xs")
-                      : row.isSubtotal 
-                        ? (isDarkMode ? "text-white font-bold" : "text-slate-900 font-bold")
-                        : (isDarkMode ? "text-white/80 font-medium pl-6" : "text-slate-700 font-medium pl-6")
-                  )}>
-                    {row.label}
+                  <td 
+                    className={cn(
+                      "py-2.5 px-3.5 whitespace-nowrap select-none",
+                      row.isFinalTotal 
+                        ? (isDarkMode ? "text-[#D4AF37] font-black text-xs" : "text-[#B48A1D] font-black text-xs")
+                        : row.isSubtotal 
+                          ? (isDarkMode ? "text-white font-bold" : "text-slate-900 font-bold")
+                          : (isDarkMode ? "text-white/80 font-medium pl-8" : "text-slate-700 font-medium pl-8")
+                    )}
+                  >
+                    <div 
+                      className="flex items-center gap-2"
+                      onClick={() => isCollapsible && toggleGroup(row.key)}
+                      style={{ cursor: isCollapsible ? 'pointer' : 'default' }}
+                    >
+                      {isCollapsible && (
+                        collapsedGroups[row.key] 
+                          ? <ChevronRight size={14} className="text-[#D4AF37] shrink-0 hover:scale-110 transition-transform" />
+                          : <ChevronDown size={14} className="text-[#D4AF37] shrink-0 hover:scale-110 transition-transform" />
+                      )}
+                      {!isCollapsible && rowParentMap[row.key] && (
+                        <span className="w-3.5 shrink-0" /> // subtle alignment alignment spacing for child rows
+                      )}
+                      <span>{row.label}</span>
+                    </div>
                   </td>
 
                   {/* Actual ($) */}
