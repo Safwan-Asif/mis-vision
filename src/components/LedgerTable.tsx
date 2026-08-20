@@ -1,7 +1,7 @@
 import { useState, useMemo } from 'react';
 import { ProcessedData } from '../types';
 import { formatCurrency, cn } from '../lib/utils';
-import { Search, Download, ArrowUpDown, Table, FileSpreadsheet, TrendingUp, TrendingDown } from 'lucide-react';
+import { Search, ArrowUpDown, Table, FileSpreadsheet } from 'lucide-react';
 import Papa from 'papaparse';
 
 interface LedgerTableProps {
@@ -17,19 +17,33 @@ interface LedgerTableProps {
 }
 
 type SortField = 
-  | 'glAccountNumber' 
-  | 'glAccountDescription' 
-  | 'groupAccountNumber' 
-  | 'costCenter' 
-  | 'cyActual' 
+  | 'glAccNum' 
+  | 'glAccDesc' 
   | 'cyBudget' 
+  | 'cyActual' 
   | 'pyActual' 
-  | 'cyVariance' 
-  | 'pyVariance' 
-  | 'varianceYoY' 
-  | 'isGrowth';
+  | 'var1' 
+  | 'var2' 
+  | 'status1' 
+  | 'status2';
 
 type SortOrder = 'asc' | 'desc';
+
+function isIncomeRow(glGroupName: string = '', misHead: string = ''): boolean {
+  const gLower = glGroupName.toLowerCase();
+  const mLower = misHead.toLowerCase();
+
+  // If explicit revenue, sales, or income references exist
+  if (gLower.includes('revenue') || gLower.includes('sales') || gLower.includes('income') ||
+      mLower.includes('revenue') || mLower.includes('sales') || mLower.includes('income')) {
+    // Sales returns behave as expense deductions
+    if (gLower.includes('return') || mLower.includes('return')) {
+      return false;
+    }
+    return true;
+  }
+  return false;
+}
 
 export function LedgerTable({ data, allData = [], filters, isDarkMode }: LedgerTableProps) {
   const [search, setSearch] = useState('');
@@ -59,7 +73,7 @@ export function LedgerTable({ data, allData = [], filters, isDarkMode }: LedgerT
     return map;
   }, [allData, data, priorYear]);
 
-  // Map each row to include calculated 11 columns
+  // Enriched rows mapping exactly to the 9 requested columns
   const enrichedRows = useMemo(() => {
     return data.map(row => {
       const key = `${row.glAccountNumber || row.glAccount}|${row.costCenter}|${row.monthIndex}`;
@@ -67,32 +81,36 @@ export function LedgerTable({ data, allData = [], filters, isDarkMode }: LedgerT
       
       const cyActual = row.actual;
       const cyBudget = row.budget;
-      const pyActual = pyMatch ? pyMatch.actual : 0;
-      const pyBudget = pyMatch ? pyMatch.budget : 0;
+      const pyActual = row.lastYearActual !== undefined ? row.lastYearActual : (pyMatch ? pyMatch.actual : 0);
 
-      const cyVariance = cyActual - cyBudget;
-      const pyVariance = pyActual - cyBudget; // Last Year Variance = Last Year Actual - Budget Target
-      const varianceYoY = cyVariance - pyVariance; // Current Year Variance - Last Year Variance
+      // VAR1 ($) = Budget - CY Actual
+      const var1 = cyBudget - cyActual;
+      
+      // VAR2 ($) = CY Actual - LY Actual
+      const var2 = cyActual - pyActual;
 
-      // Performance Status Badge (Growth 📈 vs Decline 📉)
-      // For revenue: growth if cyActual >= pyActual or varianceYoY >= 0
-      // For expenses: growth (good cost control) if cyActual <= pyActual or varianceYoY >= 0
-      const isGrowth = row.isRevenue 
-        ? (cyActual >= pyActual || varianceYoY >= 0)
-        : (cyActual <= pyActual || varianceYoY >= 0);
+      // STATUS 1 (vs Budget) with Dynamic Income vs Expense Classification
+      const isInc = isIncomeRow(row.glGroupName, row.misHead);
+      const status1 = isInc
+        ? (cyActual >= cyBudget ? 'GROWTH' : 'DEGROWTH')
+        : (cyBudget >= cyActual ? 'LOW SPEND' : 'HIGH SPEND');
+
+      // STATUS 2 (vs Prior Year)
+      // If CY Actual > LY Actual ➔ HIGH SPEND (Red Glass Pill)
+      // If CY Actual < LY Actual ➔ LOW SPEND (Green Glass Pill)
+      const status2 = cyActual > pyActual ? 'HIGH SPEND' : 'LOW SPEND';
 
       return {
         ...row,
-        glAccNum: row.glAccountNumber || row.glAccount,
-        glAccDesc: row.glAccountDescription || row.glAccount,
+        glAccNum: row.glAccountNumber || row.glAccount || '-',
+        glAccDesc: row.glAccountDescription || row.glAccount || '-',
         cyActual,
         cyBudget,
         pyActual,
-        pyBudget,
-        cyVariance,
-        pyVariance,
-        varianceYoY,
-        isGrowth
+        var1,
+        var2,
+        status1,
+        status2
       };
     });
   }, [data, priorYearMap]);
@@ -113,13 +131,11 @@ export function LedgerTable({ data, allData = [], filters, isDarkMode }: LedgerT
     }
 
     result.sort((a, b) => {
-      let aVal: any = a[sortField as keyof typeof a];
-      let bVal: any = b[sortField as keyof typeof b];
+      const aVal = a[sortField];
+      const bVal = b[sortField];
 
       if (typeof aVal === 'string' && typeof bVal === 'string') {
         return sortOrder === 'asc' ? aVal.localeCompare(bVal) : bVal.localeCompare(aVal);
-      } else if (typeof aVal === 'boolean' && typeof bVal === 'boolean') {
-        return sortOrder === 'asc' ? (aVal === bVal ? 0 : aVal ? 1 : -1) : (aVal === bVal ? 0 : aVal ? -1 : 1);
       } else {
         const numA = Number(aVal) || 0;
         const numB = Number(bVal) || 0;
@@ -141,19 +157,15 @@ export function LedgerTable({ data, allData = [], filters, isDarkMode }: LedgerT
 
   const handleExport = () => {
     const csvData = filteredAndSortedData.map(row => ({
-      'G/L Account Number': row.glAccNum,
-      'G/L Description (G/L Account5)': row.glAccDesc,
-      'Group Account Name': row.groupAccountNumber,
-      'Cost Center': row.costCenter,
-      'Current Year Actual ($)': row.cyActual,
-      'Current Year Budget ($)': row.cyBudget,
-      'Last Year Actual ($)': row.pyActual,
-      'Current Year Variance ($)': row.cyVariance,
-      'Last Year Variance ($)': row.pyVariance,
-      'Variance YoY Comparison ($)': row.varianceYoY,
-      'Performance Status': row.isGrowth 
-        ? (row.isRevenue ? 'Growth 📈' : 'Savings/Growth 📈') 
-        : (row.isRevenue ? 'Decline 📉' : 'Overrun/Decline 📉')
+      'G/L Account': row.glAccNum,
+      'G/L Description': row.glAccDesc,
+      'Budget ($)': row.cyBudget,
+      'CY Actual ($)': row.cyActual,
+      'VAR1 ($) (Budget - CY Actual)': row.var1,
+      'Status 1 (vs Budget)': row.status1,
+      'LY Actual ($)': row.pyActual,
+      'VAR2 ($) (CY Actual - LY Actual)': row.var2,
+      'Status 2 (vs Prior Year)': row.status2
     }));
 
     const csv = Papa.unparse(csvData);
@@ -161,7 +173,7 @@ export function LedgerTable({ data, allData = [], filters, isDarkMode }: LedgerT
     const link = document.createElement('a');
     const url = URL.createObjectURL(blob);
     link.setAttribute('href', url);
-    link.setAttribute('download', `GL_Ledger_DrillDown_${selectedYear}.csv`);
+    link.setAttribute('download', `GL_Ledger_Auditing_${selectedYear}.csv`);
     link.style.visibility = 'hidden';
     document.body.appendChild(link);
     link.click();
@@ -191,7 +203,7 @@ export function LedgerTable({ data, allData = [], filters, isDarkMode }: LedgerT
 
   return (
     <div className={cn(
-      "backdrop-blur-lg border rounded-xl p-5 overflow-hidden flex flex-col transition-all shadow-lg min-h-[520px]",
+      "backdrop-blur-lg border rounded-xl p-5 overflow-hidden flex flex-col transition-all shadow-lg min-h-[520px] w-full",
       isDarkMode 
         ? "bg-white/5 border-white/10 text-white" 
         : "bg-white/90 border-slate-200 text-slate-900"
@@ -201,10 +213,10 @@ export function LedgerTable({ data, allData = [], filters, isDarkMode }: LedgerT
         <div>
           <h2 className="text-base font-bold tracking-tight flex items-center gap-2">
             <Table className="text-[#D4AF37]" size={18} />
-            Module 3: Itemized G/L Ledger Drill-Down Table (Enhanced)
+            Module 4: Itemized G/L Ledger Drill-Down Table
           </h2>
           <p className={cn("text-xs font-medium mt-0.5", isDarkMode ? "text-white/50" : "text-slate-500")}>
-            Glassmorphic auditing data grid with YoY variance tracking & status badges ({filteredAndSortedData.length} Records)
+            Granular ledger financial auditing panel with dual status indicators ({filteredAndSortedData.length} Records)
           </p>
         </div>
 
@@ -215,7 +227,7 @@ export function LedgerTable({ data, allData = [], filters, isDarkMode }: LedgerT
             <Search size={15} className={cn("absolute left-3 top-1/2 -translate-y-1/2", isDarkMode ? "text-white/40" : "text-slate-400")} />
             <input 
               type="text" 
-              placeholder="Search account #, description, cost center..." 
+              placeholder="Search account #, description..." 
               value={search}
               onChange={(e) => setSearch(e.target.value)}
               className={cn(
@@ -245,28 +257,28 @@ export function LedgerTable({ data, allData = [], filters, isDarkMode }: LedgerT
 
       {/* Table Container */}
       <div className="flex-1 overflow-x-auto rounded-lg border border-slate-200/60 dark:border-white/10">
-        <table className="w-full text-left text-xs min-w-[1300px]">
+        <table className="w-full text-left text-xs min-w-[1100px]">
           <thead className={cn(
             "sticky top-0 z-10 border-b backdrop-blur-md transition-colors",
             isDarkMode ? "bg-[#111827]/90 border-white/10 text-white" : "bg-slate-100/90 border-slate-200 text-slate-800"
           )}>
             <tr>
-              <SortHeader field="glAccountNumber" label="1. G/L Acct #" />
-              <SortHeader field="glAccountDescription" label="2. G/L Description" />
-              <SortHeader field="groupAccountNumber" label="3. Group Acct" />
-              <SortHeader field="costCenter" label="4. Cost Center" />
-              <SortHeader field="cyActual" label="5. CY Actual ($)" align="right" />
-              <SortHeader field="cyBudget" label="6. CY Budget ($)" align="right" />
+              <SortHeader field="glAccNum" label="1. G/L Account" />
+              <SortHeader field="glAccDesc" label="2. G/L Description" />
+              <SortHeader field="cyBudget" label="3. Budget ($)" align="right" />
+              <SortHeader field="cyActual" label="4. CY Actual ($)" align="right" />
+              <SortHeader field="var1" label="5. Var1 ($)" align="right" />
+              <SortHeader field="status1" label="6. Status 1 (vs Bud)" align="center" />
               <SortHeader field="pyActual" label="7. LY Actual ($)" align="right" />
-              <SortHeader field="cyVariance" label="8. CY Var ($)" align="right" />
-              <SortHeader field="pyVariance" label="9. LY Var ($)" align="right" />
-              <SortHeader field="varianceYoY" label="10. YoY Var ($)" align="right" />
-              <SortHeader field="isGrowth" label="11. Status" align="center" />
+              <SortHeader field="var2" label="8. Var2 ($)" align="right" />
+              <SortHeader field="status2" label="9. Status 2 (vs LY)" align="center" />
             </tr>
           </thead>
           <tbody className={cn("divide-y", isDarkMode ? "divide-white/5" : "divide-slate-200/70")}>
             {filteredAndSortedData.map((row) => {
-              const isGrowth = row.isGrowth;
+              const var1Positive = row.var1 >= 0;
+              const var2Positive = row.var2 >= 0;
+
               return (
                 <tr 
                   key={row.id} 
@@ -277,32 +289,55 @@ export function LedgerTable({ data, allData = [], filters, isDarkMode }: LedgerT
                 >
                   {/* 1. G/L Account Number */}
                   <td className={cn("py-3 px-3 font-mono font-semibold whitespace-nowrap", isDarkMode ? "text-white/90" : "text-slate-900")}>
-                    {row.glAccNum || '-'}
+                    {row.glAccNum}
                   </td>
 
                   {/* 2. G/L Description */}
-                  <td className={cn("py-3 px-3 font-medium max-w-[220px] truncate", isDarkMode ? "text-white/80" : "text-slate-800")} title={row.glAccDesc}>
-                    {row.glAccDesc || '-'}
+                  <td className={cn("py-3 px-3 font-medium max-w-[280px] truncate", isDarkMode ? "text-white/80" : "text-slate-800")} title={row.glAccDesc}>
+                    {row.glAccDesc}
                   </td>
 
-                  {/* 3. Group Account Name */}
-                  <td className={cn("py-3 px-3 font-medium max-w-[160px] truncate", isDarkMode ? "text-white/60" : "text-slate-600")} title={row.groupAccountNumber}>
-                    {row.groupAccountNumber || '-'}
+                  {/* 3. Budget ($) */}
+                  <td className={cn("py-3 px-3 text-right font-mono whitespace-nowrap", isDarkMode ? "text-white/60" : "text-slate-600")}>
+                    {formatCurrency(row.cyBudget)}
                   </td>
 
-                  {/* 4. Cost Center */}
-                  <td className={cn("py-3 px-3 font-medium max-w-[160px] truncate", isDarkMode ? "text-white/60" : "text-slate-600")} title={row.costCenter}>
-                    {row.costCenter || '-'}
-                  </td>
-
-                  {/* 5. Current Year Actual ($) */}
+                  {/* 4. Current Year Actual ($) */}
                   <td className={cn("py-3 px-3 text-right font-mono font-bold whitespace-nowrap", isDarkMode ? "text-[#D4AF37]" : "text-[#B48A1D]")}>
                     {formatCurrency(row.cyActual)}
                   </td>
 
-                  {/* 6. Current Year Budget ($) */}
-                  <td className={cn("py-3 px-3 text-right font-mono whitespace-nowrap", isDarkMode ? "text-white/60" : "text-slate-600")}>
-                    {formatCurrency(row.cyBudget)}
+                  {/* 5. Var1 ($) (Budget - CY Actual) */}
+                  <td className={cn(
+                    "py-3 px-3 text-right font-mono font-semibold whitespace-nowrap",
+                    var1Positive 
+                      ? (isDarkMode ? "text-emerald-400" : "text-emerald-600") 
+                      : (isDarkMode ? "text-rose-400" : "text-rose-600")
+                  )}>
+                    {var1Positive ? '+' : ''}{formatCurrency(row.var1)}
+                  </td>
+
+                   {/* 6. Status 1 Badge (vs Budget) */}
+                  <td className="py-3 px-3 text-center whitespace-nowrap">
+                    {(row.status1 === 'LOW SPEND' || row.status1 === 'GROWTH') ? (
+                      <span className={cn(
+                        "inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-[10px] font-extrabold border shadow-sm",
+                        isDarkMode 
+                          ? "bg-emerald-500/15 text-emerald-400 border-emerald-500/30" 
+                          : "bg-emerald-50 text-emerald-700 border-emerald-300"
+                      )}>
+                        {row.status1 === 'GROWTH' ? 'GROWTH 👍' : 'LOW SPEND 👍'}
+                      </span>
+                    ) : (
+                      <span className={cn(
+                        "inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-[10px] font-extrabold border shadow-sm",
+                        isDarkMode 
+                          ? "bg-rose-500/15 text-rose-400 border-rose-500/30" 
+                          : "bg-rose-50 text-rose-700 border-rose-300"
+                      )}>
+                        {row.status1 === 'DEGROWTH' ? 'DEGROWTH ⚠️' : 'HIGH SPEND ⚠️'}
+                      </span>
+                    )}
                   </td>
 
                   {/* 7. Last Year Actual ($) */}
@@ -310,55 +345,35 @@ export function LedgerTable({ data, allData = [], filters, isDarkMode }: LedgerT
                     {formatCurrency(row.pyActual)}
                   </td>
 
-                  {/* 8. Current Year Variance ($) */}
+                  {/* 8. Var2 ($) (CY Actual - LY Actual) */}
                   <td className={cn(
-                    "py-3 px-3 text-right font-mono font-medium whitespace-nowrap",
-                    row.cyVariance >= 0 
+                    "py-3 px-3 text-right font-mono font-semibold whitespace-nowrap",
+                    var2Positive 
                       ? (isDarkMode ? "text-emerald-400" : "text-emerald-600") 
                       : (isDarkMode ? "text-rose-400" : "text-rose-600")
                   )}>
-                    {row.cyVariance >= 0 ? '+' : ''}{formatCurrency(row.cyVariance)}
+                    {var2Positive ? '+' : ''}{formatCurrency(row.var2)}
                   </td>
 
-                  {/* 9. Last Year Variance ($) */}
-                  <td className={cn(
-                    "py-3 px-3 text-right font-mono font-medium whitespace-nowrap",
-                    row.pyVariance >= 0 
-                      ? (isDarkMode ? "text-emerald-400/80" : "text-emerald-700/80") 
-                      : (isDarkMode ? "text-rose-400/80" : "text-rose-700/80")
-                  )}>
-                    {row.pyVariance >= 0 ? '+' : ''}{formatCurrency(row.pyVariance)}
-                  </td>
-
-                  {/* 10. Variance YoY Comparison ($) */}
-                  <td className={cn(
-                    "py-3 px-3 text-right font-mono font-bold whitespace-nowrap",
-                    row.varianceYoY >= 0 
-                      ? (isDarkMode ? "text-emerald-400" : "text-emerald-600") 
-                      : (isDarkMode ? "text-rose-400" : "text-rose-600")
-                  )}>
-                    {row.varianceYoY >= 0 ? '+' : ''}{formatCurrency(row.varianceYoY)}
-                  </td>
-
-                  {/* 11. Performance Status Badge */}
+                  {/* 9. Status 2 Badge (vs LY) */}
                   <td className="py-3 px-3 text-center whitespace-nowrap">
-                    {isGrowth ? (
+                    {row.status2 === 'LOW SPEND' ? (
                       <span className={cn(
-                        "inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-[11px] font-extrabold border shadow-sm",
+                        "inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-[10px] font-extrabold border shadow-sm",
                         isDarkMode 
                           ? "bg-emerald-500/15 text-emerald-400 border-emerald-500/30" 
                           : "bg-emerald-50 text-emerald-700 border-emerald-300"
                       )}>
-                        {row.isRevenue ? 'Growth 📈' : 'Savings/Growth 📈'}
+                        LOW SPEND 📉
                       </span>
                     ) : (
                       <span className={cn(
-                        "inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-[11px] font-extrabold border shadow-sm",
+                        "inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-[10px] font-extrabold border shadow-sm",
                         isDarkMode 
                           ? "bg-rose-500/15 text-rose-400 border-rose-500/30" 
                           : "bg-rose-50 text-rose-700 border-rose-300"
                       )}>
-                        {row.isRevenue ? 'Decline 📉' : 'Overrun/Decline 📉'}
+                        HIGH SPEND 📈
                       </span>
                     )}
                   </td>
@@ -368,7 +383,7 @@ export function LedgerTable({ data, allData = [], filters, isDarkMode }: LedgerT
 
             {filteredAndSortedData.length === 0 && (
               <tr>
-                <td colSpan={11} className={cn("py-12 text-center text-xs font-medium", isDarkMode ? "text-white/40" : "text-slate-400")}>
+                <td colSpan={9} className={cn("py-12 text-center text-xs font-medium", isDarkMode ? "text-white/40" : "text-slate-400")}>
                   No matching G/L ledger records found.
                 </td>
               </tr>

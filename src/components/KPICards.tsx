@@ -449,7 +449,72 @@ export function KPICards({ allData, filters, isDarkMode }: KPICardsProps) {
           </div>
         </div>
 
-        {/* CARD 4: Achievement Amount & % */}
+        {/* CARD 4: EBITDA (Net Profit + Depreciation) */}
+        <div className={cn(
+          "backdrop-blur-lg rounded-xl p-4 transition-all duration-200 border flex flex-col justify-between hover:border-[#D4AF37]/50 shadow-md",
+          isDarkMode ? "bg-white/5 border-white/10 text-white" : "bg-white/90 border-slate-200 text-slate-900"
+        )}>
+          {/* Card Header */}
+          <div className="flex items-center justify-between pb-2 border-b border-slate-200/60 dark:border-white/10 mb-2">
+            <span className={cn("text-xs font-bold uppercase tracking-wider flex items-center gap-1.5", isDarkMode ? "text-[#D4AF37]" : "text-[#B48A1D]")}>
+              <Activity size={14} />
+              EBITDA
+            </span>
+            <span className={cn("text-[10px] font-semibold px-2 py-0.5 rounded", isDarkMode ? "bg-white/10 text-white/70" : "bg-slate-100 text-slate-600")}>
+              Split MTD / YTD
+            </span>
+          </div>
+
+          {/* Top Segment: MTD */}
+          <div className="pb-3 mb-3 border-b border-dashed border-slate-200 dark:border-white/15 space-y-1">
+            <div className="flex justify-between items-center">
+              <span className={cn("text-[10px] font-bold uppercase tracking-wider", isDarkMode ? "text-white/50" : "text-slate-500")}>
+                MTD ({selectedMonthLabel})
+              </span>
+              <span className={cn(
+                "px-1.5 py-0.5 rounded text-[10px] font-bold border",
+                isMtdEbitdaFav 
+                  ? (isDarkMode ? "bg-emerald-500/15 text-emerald-400 border-emerald-500/30" : "bg-emerald-50 text-emerald-700 border-emerald-300")
+                  : (isDarkMode ? "bg-rose-500/15 text-rose-400 border-rose-500/30" : "bg-rose-50 text-rose-700 border-rose-300")
+              )}>
+                {mtdEbitdaVarPct >= 0 ? '+' : ''}{formatPercent(mtdEbitdaVarPct)}
+              </span>
+            </div>
+            <div className={cn("text-xl font-mono font-semibold", isDarkMode ? "text-white" : "text-slate-900")}>
+              {formatCurrency(m.ebitdaActual)}
+            </div>
+            <div className={cn("text-[10px] flex justify-between font-medium", isDarkMode ? "text-white/40" : "text-slate-500")}>
+              <span>Budget: <strong className={isDarkMode ? "text-white/70" : "text-slate-700"}>{formatCurrency(m.ebitdaBudget)}</strong></span>
+              <span>VAR: <strong className={isDarkMode ? "text-white/70" : "text-slate-700"}>{mtdEbitdaVar >= 0 ? '+' : ''}{formatCurrency(mtdEbitdaVar)}</strong></span>
+            </div>
+          </div>
+
+          {/* Bottom Segment: YTD */}
+          <div className="space-y-1 pt-0.5">
+            <div className="flex justify-between items-center">
+              <span className={cn("text-[10px] font-bold uppercase tracking-wider", isDarkMode ? "text-white/50" : "text-slate-500")}>
+                YTD ({ytdPeriodText})
+              </span>
+              <span className={cn(
+                "px-1.5 py-0.5 rounded text-[10px] font-bold border",
+                isYtdEbitdaFav 
+                  ? (isDarkMode ? "bg-emerald-500/15 text-emerald-400 border-emerald-500/30" : "bg-emerald-50 text-emerald-700 border-emerald-300")
+                  : (isDarkMode ? "bg-rose-500/15 text-rose-400 border-rose-500/30" : "bg-rose-50 text-rose-700 border-rose-300")
+              )}>
+                {ytdEbitdaVarPct >= 0 ? '+' : ''}{formatPercent(ytdEbitdaVarPct)}
+              </span>
+            </div>
+            <div className={cn("text-xl font-mono font-semibold", isDarkMode ? "text-[#D4AF37]" : "text-[#B48A1D]")}>
+              {formatCurrency(y.ebitdaActual)}
+            </div>
+            <div className={cn("text-[10px] flex justify-between font-medium", isDarkMode ? "text-white/40" : "text-slate-500")}>
+              <span>Budget: <strong className={isDarkMode ? "text-white/70" : "text-slate-700"}>{formatCurrency(y.ebitdaBudget)}</strong></span>
+              <span>VAR: <strong className={isDarkMode ? "text-white/70" : "text-slate-700"}>{ytdEbitdaVar >= 0 ? '+' : ''}{formatCurrency(ytdEbitdaVar)}</strong></span>
+            </div>
+          </div>
+        </div>
+
+        {/* CARD 5: Achievement Amount & % */}
         <div className={cn(
           "backdrop-blur-lg rounded-xl p-4 transition-all duration-200 border flex flex-col justify-between hover:border-[#D4AF37]/50 shadow-md",
           isDarkMode ? "bg-white/5 border-white/10 text-white" : "bg-white/90 border-slate-200 text-slate-900"
@@ -522,7 +587,7 @@ export function KPICards({ allData, filters, isDarkMode }: KPICardsProps) {
           </div>
         </div>
 
-        {/* CARD 5: Growth Rate % */}
+        {/* CARD 6: Growth Rate % */}
         <div className={cn(
           "backdrop-blur-lg rounded-xl p-4 transition-all duration-200 border flex flex-col justify-between hover:border-[#D4AF37]/50 shadow-md",
           isDarkMode ? "bg-white/5 border-white/10 text-white" : "bg-white/90 border-slate-200 text-slate-900"
@@ -583,71 +648,6 @@ export function KPICards({ allData, filters, isDarkMode }: KPICardsProps) {
             <div className={cn("text-[10px] flex justify-between font-medium", isDarkMode ? "text-white/40" : "text-slate-500")}>
               <span>CY YTD: {formatCurrency(y.salesActual)}</span>
               <span>PY YTD: {hasPYYTD ? formatCurrency(pyY.salesActual) : 'N/A'}</span>
-            </div>
-          </div>
-        </div>
-
-        {/* CARD 6: EBITDA (Net Profit + Depreciation) */}
-        <div className={cn(
-          "backdrop-blur-lg rounded-xl p-4 transition-all duration-200 border flex flex-col justify-between hover:border-[#D4AF37]/50 shadow-md",
-          isDarkMode ? "bg-white/5 border-white/10 text-white" : "bg-white/90 border-slate-200 text-slate-900"
-        )}>
-          {/* Card Header */}
-          <div className="flex items-center justify-between pb-2 border-b border-slate-200/60 dark:border-white/10 mb-2">
-            <span className={cn("text-xs font-bold uppercase tracking-wider flex items-center gap-1.5", isDarkMode ? "text-[#D4AF37]" : "text-[#B48A1D]")}>
-              <Activity size={14} />
-              EBITDA (NP + Dep)
-            </span>
-            <span className={cn("text-[10px] font-semibold px-2 py-0.5 rounded", isDarkMode ? "bg-white/10 text-white/70" : "bg-slate-100 text-slate-600")}>
-              Split MTD / YTD
-            </span>
-          </div>
-
-          {/* Top Segment: MTD */}
-          <div className="pb-3 mb-3 border-b border-dashed border-slate-200 dark:border-white/15 space-y-1">
-            <div className="flex justify-between items-center">
-              <span className={cn("text-[10px] font-bold uppercase tracking-wider", isDarkMode ? "text-white/50" : "text-slate-500")}>
-                MTD ({selectedMonthLabel})
-              </span>
-              <span className={cn(
-                "px-1.5 py-0.5 rounded text-[10px] font-bold border",
-                isMtdEbitdaFav 
-                  ? (isDarkMode ? "bg-emerald-500/15 text-emerald-400 border-emerald-500/30" : "bg-emerald-50 text-emerald-700 border-emerald-300")
-                  : (isDarkMode ? "bg-rose-500/15 text-rose-400 border-rose-500/30" : "bg-rose-50 text-rose-700 border-rose-300")
-              )}>
-                {mtdEbitdaVarPct >= 0 ? '+' : ''}{formatPercent(mtdEbitdaVarPct)}
-              </span>
-            </div>
-            <div className={cn("text-xl font-mono font-semibold", isDarkMode ? "text-white" : "text-slate-900")}>
-              {formatCurrency(m.ebitdaActual)}
-            </div>
-            <div className={cn("text-[10px] flex justify-between font-medium", isDarkMode ? "text-white/40" : "text-slate-500")}>
-              <span>Budget: <strong className={isDarkMode ? "text-white/70" : "text-slate-700"}>{formatCurrency(m.ebitdaBudget)}</strong></span>
-              <span>VAR: <strong className={isDarkMode ? "text-white/70" : "text-slate-700"}>{mtdEbitdaVar >= 0 ? '+' : ''}{formatCurrency(mtdEbitdaVar)}</strong></span>
-            </div>
-          </div>
-
-          {/* Bottom Segment: YTD */}
-          <div className="space-y-1 pt-0.5">
-            <div className="flex justify-between items-center">
-              <span className={cn("text-[10px] font-bold uppercase tracking-wider", isDarkMode ? "text-white/50" : "text-slate-500")}>
-                YTD ({ytdPeriodText})
-              </span>
-              <span className={cn(
-                "px-1.5 py-0.5 rounded text-[10px] font-bold border",
-                isYtdEbitdaFav 
-                  ? (isDarkMode ? "bg-emerald-500/15 text-emerald-400 border-emerald-500/30" : "bg-emerald-50 text-emerald-700 border-emerald-300")
-                  : (isDarkMode ? "bg-rose-500/15 text-rose-400 border-rose-500/30" : "bg-rose-50 text-rose-700 border-rose-300")
-              )}>
-                {ytdEbitdaVarPct >= 0 ? '+' : ''}{formatPercent(ytdEbitdaVarPct)}
-              </span>
-            </div>
-            <div className={cn("text-xl font-mono font-semibold", isDarkMode ? "text-[#D4AF37]" : "text-[#B48A1D]")}>
-              {formatCurrency(y.ebitdaActual)}
-            </div>
-            <div className={cn("text-[10px] flex justify-between font-medium", isDarkMode ? "text-white/40" : "text-slate-500")}>
-              <span>Budget: <strong className={isDarkMode ? "text-white/70" : "text-slate-700"}>{formatCurrency(y.ebitdaBudget)}</strong></span>
-              <span>VAR: <strong className={isDarkMode ? "text-white/70" : "text-slate-700"}>{ytdEbitdaVar >= 0 ? '+' : ''}{formatCurrency(ytdEbitdaVar)}</strong></span>
             </div>
           </div>
         </div>

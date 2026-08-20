@@ -127,6 +127,21 @@ function processRawData(rawData: RawData[]): ProcessedData[] {
       }
     }
 
+    const rawLYActualStr = (
+      row['Last Year Actual'] || 
+      row['P'] || 
+      row['last year actual'] || 
+      row['Last Year Actual Value'] || 
+      '0'
+    ).toString().replace(/,/g, '');
+    let rawLYActual = parseFloat(rawLYActualStr) || 0;
+    if (isRevenue) {
+      rawLYActual = rawLYActual * -1;
+    }
+
+    const glGroup = (row['G/L Group'] || row['I'] || '').toString().trim();
+    const glGroupName = (row['G/L Group name'] || row['G/L Group Name'] || row['H'] || row['J'] || '').toString().trim();
+
     return {
       id: `row-${index}`,
       companyCode: row['Company Code'] || '',
@@ -147,7 +162,10 @@ function processRawData(rawData: RawData[]): ProcessedData[] {
       varianceAmount: varianceAmount,
       variancePercent: variancePercent,
       isRevenue,
-      status
+      status,
+      lastYearActual: rawLYActual,
+      glGroup,
+      glGroupName
     };
   });
 }

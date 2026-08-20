@@ -1,10 +1,16 @@
 import { useMemo, useState } from 'react';
 import { ProcessedData } from '../types';
 import { formatCurrency, formatPercent, cn } from '../lib/utils';
-import { FileText, ChevronDown, ChevronRight, Eye, EyeOff } from 'lucide-react';
+import { FileText, ChevronDown, ChevronRight } from 'lucide-react';
 
 interface MISHeadTableProps {
   data: ProcessedData[];
+  filters: {
+    year: string;
+    month: string;
+    groupAccountNumber: string;
+    misHead: string;
+  };
   isDarkMode: boolean;
 }
 
@@ -13,12 +19,15 @@ interface PLRow {
   label: string;
   actual: number;
   budget: number;
+  lyActual: number;
   varianceAmount: number;
   variancePercent: number;
   isSubtotal?: boolean;
   isFinalTotal?: boolean;
   isRevenueLike?: boolean;
 }
+
+const MONTH_NAMES = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
 
 // Maps child row keys to their respective subtotal parent keys
 const rowParentMap: Record<string, string> = {
@@ -41,7 +50,8 @@ const rowParentMap: Record<string, string> = {
   'tax': 'final_npat',
 };
 
-export function MISHeadTable({ data, isDarkMode }: MISHeadTableProps) {
+export function MISHeadTable({ data, filters, isDarkMode }: MISHeadTableProps) {
+  const selectedYear = filters.year || '2026';
   // Collapsed by default for executive summary view
   const [collapsedGroups, setCollapsedGroups] = useState<Record<string, boolean>>({
     sub_net_sales: true,
@@ -52,6 +62,9 @@ export function MISHeadTable({ data, isDarkMode }: MISHeadTableProps) {
     sub_npbt: true,
     final_npat: true,
   });
+
+  // Toggle for Variance Display (true = percentage, false = amount)
+  const [showVariancePercent, setShowVariancePercent] = useState(false);
 
   const isAllExpanded = useMemo(() => {
     return Object.values(collapsedGroups).every(v => !v);
@@ -83,11 +96,35 @@ export function MISHeadTable({ data, isDarkMode }: MISHeadTableProps) {
     return !collapsedGroups[parentKey];
   };
 
-  const plData = useMemo(() => {
-    // 1. Accumulate raw values by normalized key
-    const totals: Record<string, { actual: number; budget: number }> = {};
+  // Determine current active month index from the global filter
+  const selectedMonthIndex = useMemo(() => {
+    const index = MONTH_NAMES.indexOf(filters.month);
+    return index !== -1 ? index : 11;
+  }, [filters.month]);
 
-    data.forEach(row => {
+  // General row filtering helper (excludes the month check since MTD and YTD handle it differently)
+  const filterRowGeneral = (row: ProcessedData) => {
+    if (filters.year && row.year !== filters.year) return false;
+    if (filters.groupAccountNumber && row.groupAccountNumber !== filters.groupAccountNumber) return false;
+    if (filters.misHead && row.misHead !== filters.misHead) return false;
+    return true;
+  };
+
+  // 1. LEFT DATA: MTD Rows (Selected Month only)
+  const mtdRowsData = useMemo(() => {
+    return data.filter(row => filterRowGeneral(row) && row.month === filters.month);
+  }, [data, filters]);
+
+  // 2. RIGHT DATA: YTD Rows (Jan up to Selected Month)
+  const ytdRowsData = useMemo(() => {
+    return data.filter(row => filterRowGeneral(row) && row.monthIndex <= selectedMonthIndex);
+  }, [data, filters, selectedMonthIndex]);
+
+  // Common function to compute full hierarchical P&L row state
+  const calculatePLData = (rowsList: ProcessedData[]) => {
+    const totals: Record<string, { actual: number; budget: number; lyActual: number }> = {};
+
+    rowsList.forEach(row => {
       const raw = (row.misHead || '').trim();
       if (!raw) return;
 
@@ -113,17 +150,16 @@ export function MISHeadTable({ data, isDarkMode }: MISHeadTableProps) {
       else if (upper.includes('TAX')) normKey = 'TAX EXPENSE';
 
       if (!totals[normKey]) {
-        totals[normKey] = { actual: 0, budget: 0 };
+        totals[normKey] = { actual: 0, budget: 0, lyActual: 0 };
       }
 
-      // In data.ts, actual & budget for sales/other income are already positive (abs)
       totals[normKey].actual += Math.abs(row.actual);
       totals[normKey].budget += Math.abs(row.budget);
+      totals[normKey].lyActual += Math.abs(row.lastYearActual || 0);
     });
 
-    const getVal = (key: string) => totals[key] || { actual: 0, budget: 0 };
+    const getVal = (key: string) => totals[key] || { actual: 0, budget: 0, lyActual: 0 };
 
-    // 2. Extract base values
     const a = getVal('SALES/REVENUE');
     const b = getVal('SALES RETURN');
     const c = getVal('MATERIAL COST');
@@ -146,71 +182,72 @@ export function MISHeadTable({ data, isDarkMode }: MISHeadTableProps) {
     const finChg = getVal('FINANCE CHARGES');
     const taxExp = getVal('TAX EXPENSE');
 
-    // 3. Calculated Subtotals
-    // Net Sales = a - b
+    // Calculated Subtotals
     const netSales = {
       actual: a.actual - b.actual,
-      budget: a.budget - b.budget
+      budget: a.budget - b.budget,
+      lyActual: a.lyActual - b.lyActual
     };
 
-    // MOM = Net Sales - c
     const mom = {
       actual: netSales.actual - c.actual,
-      budget: netSales.budget - c.budget
+      budget: netSales.budget - c.budget,
+      lyActual: netSales.lyActual - c.lyActual
     };
 
-    // Production Overheads = SUM(d items)
     const prodOverheads = {
       actual: d1.actual + d2.actual + d3.actual + d4.actual,
-      budget: d1.budget + d2.budget + d3.budget + d4.budget
+      budget: d1.budget + d2.budget + d3.budget + d4.budget,
+      lyActual: d1.lyActual + d2.lyActual + d3.lyActual + d4.lyActual
     };
 
-    // Gross Profit = MOM - Production Overheads
     const grossProfit = {
       actual: mom.actual - prodOverheads.actual,
-      budget: mom.budget - prodOverheads.budget
+      budget: mom.budget - prodOverheads.budget,
+      lyActual: mom.lyActual - prodOverheads.lyActual
     };
 
-    // GA Overheads = SUM(e items)
     const gaOverheads = {
       actual: e1.actual + e2.actual + e3.actual,
-      budget: e1.budget + e2.budget + e3.budget
+      budget: e1.budget + e2.budget + e3.budget,
+      lyActual: e1.lyActual + e2.lyActual + e3.lyActual
     };
 
-    // SM Overheads = SUM(f items)
     const smOverheads = {
       actual: f1.actual + f2.actual + f3.actual + f4.actual,
-      budget: f1.budget + f2.budget + f3.budget + f4.budget
+      budget: f1.budget + f2.budget + f3.budget + f4.budget,
+      lyActual: f1.lyActual + f2.lyActual + f3.lyActual + f4.lyActual
     };
 
-    // NPBT = Gross Profit + OTHER INCOME - (GA Overheads + SM Overheads + FINANCE CHARGES)
     const npbt = {
       actual: grossProfit.actual + otherInc.actual - (gaOverheads.actual + smOverheads.actual + finChg.actual),
-      budget: grossProfit.budget + otherInc.budget - (gaOverheads.budget + smOverheads.budget + finChg.budget)
+      budget: grossProfit.budget + otherInc.budget - (gaOverheads.budget + smOverheads.budget + finChg.budget),
+      lyActual: grossProfit.lyActual + otherInc.lyActual - (gaOverheads.lyActual + smOverheads.lyActual + finChg.lyActual)
     };
 
-    // NPAT = NPBT - TAX EXPENSE
     const npat = {
       actual: npbt.actual - taxExp.actual,
-      budget: npbt.budget - taxExp.budget
+      budget: npbt.budget - taxExp.budget,
+      lyActual: npbt.lyActual - taxExp.lyActual
     };
 
-    // Helper to format line object
     const makeRow = (
       key: string, 
       label: string, 
-      item: { actual: number; budget: number }, 
+      item: { actual: number; budget: number; lyActual: number }, 
       isSubtotal = false, 
       isFinalTotal = false,
       isRevenueLike = false
     ): PLRow => {
-      const varAmt = item.actual - item.budget;
+      // VAR$ = BUD - CY ACTUAL
+      const varAmt = item.budget - item.actual;
       const varPct = item.budget !== 0 ? (varAmt / Math.abs(item.budget)) * 100 : 0;
       return {
         key,
         label,
         actual: item.actual,
         budget: item.budget,
+        lyActual: item.lyActual,
         varianceAmount: varAmt,
         variancePercent: varPct,
         isSubtotal,
@@ -219,8 +256,7 @@ export function MISHeadTable({ data, isDarkMode }: MISHeadTableProps) {
       };
     };
 
-    // 4. Construct FIXED, UNCHANGING P&L SEQUENCING
-    const rows: PLRow[] = [
+    return [
       makeRow('a', 'SALES/REVENUE', a, false, false, true),
       makeRow('b', 'SALES RETURN', b, false, false, false),
       makeRow('sub_net_sales', 'Net Sales', netSales, true, false, true),
@@ -253,112 +289,128 @@ export function MISHeadTable({ data, isDarkMode }: MISHeadTableProps) {
       makeRow('tax', 'TAX EXPENSE', taxExp, false, false, false),
       makeRow('final_npat', 'NPAT (Net Profit After Tax)', npat, true, true, true)
     ];
+  };
 
-    return rows;
-  }, [data]);
+  const mtdPLData = useMemo(() => calculatePLData(mtdRowsData), [mtdRowsData]);
+  const ytdPLData = useMemo(() => calculatePLData(ytdRowsData), [ytdRowsData]);
 
-  return (
+  // Common inner component to render a single P&L table (MTD or YTD)
+  const RenderTable = ({ title, description, rows }: { title: string; description: string; rows: PLRow[] }) => (
     <div className={cn(
-      "flex-1 backdrop-blur-lg border rounded-xl flex flex-col p-4 sm:p-5 overflow-hidden transition-all shadow-lg min-h-[520px]",
+      "backdrop-blur-lg border rounded-xl flex flex-col p-3 sm:p-4 overflow-hidden transition-all shadow-md w-full",
       isDarkMode 
         ? "bg-white/5 border-white/10 text-white" 
         : "bg-white/90 border-slate-200 text-slate-900"
     )}>
-      <div className="flex items-center justify-between gap-4 mb-4">
-        <div>
-          <h2 className="text-base font-bold tracking-tight flex items-center gap-2">
-            <FileText className="text-[#D4AF37]" size={18} />
-            Module 3: Fixed Statutory MIS Head P&L Breakdown Table
-          </h2>
-          <p className={cn("text-xs font-medium mt-0.5", isDarkMode ? "text-white/50" : "text-slate-500")}>
-            Fixed, unchanging P&L financial sequencing & subtotal hierarchy
-          </p>
-        </div>
-
-        {/* Dual-State Pill Toggle Control */}
-        <button
-          onClick={toggleAll}
-          className={cn(
-            "px-3.5 py-1.5 rounded-full text-xs font-semibold tracking-wide transition-all border flex items-center gap-2 cursor-pointer shadow-sm shrink-0",
-            isDarkMode 
-              ? "bg-[#D4AF37]/10 text-[#D4AF37] border-[#D4AF37]/35 hover:bg-[#D4AF37]/20" 
-              : "bg-amber-500/10 text-[#B48A1D] border-amber-500/30 hover:bg-amber-500/20"
-          )}
-        >
-          {isAllExpanded ? <EyeOff size={13} /> : <Eye size={13} />}
-          <span>{isAllExpanded ? "Collapse All" : "Expand All"}</span>
-        </button>
+      <div className="flex flex-col mb-2.5">
+        <h3 className="text-xs sm:text-sm font-bold tracking-tight flex items-center gap-1.5">
+          <FileText className="text-[#D4AF37]" size={14} />
+          {title}
+        </h3>
+        <p className={cn("text-[10px] sm:text-[11px] font-medium mt-0.5", isDarkMode ? "text-white/50" : "text-slate-500")}>
+          {description}
+        </p>
       </div>
 
-      <div className="flex-1 overflow-x-auto rounded-lg border border-slate-200/60 dark:border-white/10">
-        <table className="w-full text-left text-xs min-w-[700px]">
+      <div className="rounded-lg border border-slate-200/60 dark:border-white/10 overflow-hidden w-full">
+        <table className="w-full text-left text-[10px] sm:text-[11px] table-fixed">
+          <colgroup>
+            <col className="w-[32%]" />
+            <col className="w-[11%]" />
+            <col className="w-[12%]" />
+            <col className="w-[11%]" />
+            <col className="w-[11%]" />
+            <col className="w-[11%]" />
+            <col className="w-[12%]" />
+          </colgroup>
           <thead className={cn(
             "sticky top-0 z-10 border-b backdrop-blur-md transition-colors",
             isDarkMode ? "bg-[#111827]/90 border-white/10 text-white" : "bg-slate-100/90 border-slate-200 text-slate-800"
           )}>
             <tr>
-              <th className="py-3 px-3.5 font-bold uppercase tracking-wider text-[11px]">P&L Category</th>
-              <th className="py-3 px-3.5 font-bold uppercase tracking-wider text-[11px] text-right">Actual ($)</th>
-              <th className="py-3 px-3.5 font-bold uppercase tracking-wider text-[11px] text-right">Budget ($)</th>
-              <th className="py-3 px-3.5 font-bold uppercase tracking-wider text-[11px] text-right">Var ($)</th>
-              <th className="py-3 px-3.5 font-bold uppercase tracking-wider text-[11px] text-right">Var %</th>
+              <th className="py-1 px-1 font-bold uppercase tracking-wider text-[8.5px] sm:text-[9.5px] truncate">P&L Category</th>
+              <th className="py-1 px-1 font-bold uppercase tracking-wider text-[8.5px] sm:text-[9.5px] text-right truncate">Budget</th>
+              <th className="py-1 px-1 font-bold uppercase tracking-wider text-[8.5px] sm:text-[9.5px] text-right truncate">CY Act</th>
+              <th className="py-1 px-1 font-bold uppercase tracking-wider text-[8.5px] sm:text-[9.5px] text-right truncate">LY Act</th>
+              <th className="py-1 px-1 font-bold uppercase tracking-wider text-[8.5px] sm:text-[9.5px] text-right text-amber-500 truncate">
+                Var {showVariancePercent ? "%" : "$"}
+              </th>
+              <th className="py-1 px-1 font-bold uppercase tracking-wider text-[8.5px] sm:text-[9.5px] text-center truncate">Status 1</th>
+              <th className="py-1 px-1 font-bold uppercase tracking-wider text-[8.5px] sm:text-[9.5px] text-center truncate">Status 2</th>
             </tr>
           </thead>
           <tbody className={cn("divide-y", isDarkMode ? "divide-white/5" : "divide-slate-200/70")}>
-            {plData.map((row) => {
+            {rows.map((row) => {
               if (!isRowVisible(row.key)) return null;
 
-              const isFavorable = row.isRevenueLike 
-                ? row.actual >= row.budget 
-                : row.actual <= row.budget;
+              const isVarPositive = row.varianceAmount >= 0;
 
               const isCollapsible = [
                 'sub_net_sales', 'sub_mom', 'sub_prod', 'sub_ga', 'sub_sm', 'sub_npbt', 'final_npat'
               ].includes(row.key);
+
+              // Status 1 Badge (vs Budget):
+              const isIncome = row.isRevenueLike;
+              const status1 = isIncome 
+                ? (row.actual >= row.budget ? 'GROWTH' : 'DEGROWTH')
+                : (row.budget >= row.actual ? 'LOW SPEND' : 'HIGH SPEND');
+
+              // Status 2 Badge (vs Prior Year):
+              const status2 = row.actual > row.lyActual ? 'HIGH SPEND' : 'LOW SPEND';
 
               return (
                 <tr 
                   key={row.key} 
                   className={cn(
                     "transition-colors",
-                    row.isFinalTotal
-                      ? (isDarkMode ? "bg-[#D4AF37]/20 font-black border-y-2 border-[#D4AF37]/50" : "bg-amber-100/90 font-black border-y-2 border-amber-400")
+                    row.isFinalTotal 
+                      ? (isDarkMode ? "bg-[#D4AF37]/10 hover:bg-[#D4AF37]/15" : "bg-amber-500/10 hover:bg-amber-500/15") 
                       : row.isSubtotal 
-                        ? (isDarkMode ? "bg-white/10 font-bold border-y border-white/15" : "bg-amber-500/10 font-bold border-y border-amber-200/80")
-                        : (isDarkMode ? "hover:bg-white/[0.03]" : "hover:bg-slate-50")
+                        ? (isDarkMode ? "bg-white/[0.02] hover:bg-white/[0.04]" : "bg-slate-50 hover:bg-slate-100") 
+                        : (isDarkMode ? "hover:bg-white/[0.01]" : "hover:bg-slate-50/50")
                   )}
                 >
-                  {/* Category Label */}
-                  <td 
-                    className={cn(
-                      "py-2.5 px-3.5 whitespace-nowrap select-none",
-                      row.isFinalTotal 
-                        ? (isDarkMode ? "text-[#D4AF37] font-black text-xs" : "text-[#B48A1D] font-black text-xs")
-                        : row.isSubtotal 
-                          ? (isDarkMode ? "text-white font-bold" : "text-slate-900 font-bold")
-                          : (isDarkMode ? "text-white/80 font-medium pl-8" : "text-slate-700 font-medium pl-8")
-                    )}
-                  >
-                    <div 
-                      className="flex items-center gap-2"
-                      onClick={() => isCollapsible && toggleGroup(row.key)}
-                      style={{ cursor: isCollapsible ? 'pointer' : 'default' }}
-                    >
-                      {isCollapsible && (
-                        collapsedGroups[row.key] 
-                          ? <ChevronRight size={14} className="text-[#D4AF37] shrink-0 hover:scale-110 transition-transform" />
-                          : <ChevronDown size={14} className="text-[#D4AF37] shrink-0 hover:scale-110 transition-transform" />
+                  {/* Category Name */}
+                  <td className="py-1 px-1 font-medium whitespace-nowrap truncate">
+                    <div className="flex items-center gap-1">
+                      {isCollapsible ? (
+                        <button 
+                          onClick={() => toggleGroup(row.key)}
+                          className={cn(
+                            "p-0 rounded transition-colors cursor-pointer",
+                            isDarkMode ? "hover:bg-white/10 text-white/60" : "hover:bg-slate-200 text-slate-500"
+                          )}
+                        >
+                          {collapsedGroups[row.key] ? <ChevronRight size={12} /> : <ChevronDown size={12} />}
+                        </button>
+                      ) : (
+                        <span className="w-3" />
                       )}
-                      {!isCollapsible && rowParentMap[row.key] && (
-                        <span className="w-3.5 shrink-0" /> // subtle alignment alignment spacing for child rows
-                      )}
-                      <span>{row.label}</span>
+                      
+                      <span className={cn(
+                        "truncate text-[9.5px] sm:text-[10.5px]",
+                        row.isFinalTotal || row.isSubtotal
+                          ? (isDarkMode ? "text-[#D4AF37] font-extrabold" : "text-[#B48A1D] font-extrabold")
+                          : (isDarkMode ? "text-white/90" : "text-slate-800")
+                      )}>
+                        {row.label}
+                      </span>
                     </div>
                   </td>
 
-                  {/* Actual ($) */}
+                  {/* Budget ($) */}
                   <td className={cn(
-                    "py-2.5 px-3.5 text-right font-mono whitespace-nowrap",
+                    "py-1 px-1 text-right font-mono whitespace-nowrap truncate text-[9.5px] sm:text-[10.5px]",
+                    row.isSubtotal || row.isFinalTotal
+                      ? (isDarkMode ? "text-white/85 font-bold" : "text-slate-900 font-bold")
+                      : (isDarkMode ? "text-white/60" : "text-slate-600")
+                  )}>
+                    {formatCurrency(row.budget)}
+                  </td>
+
+                  {/* CY Actual ($) */}
+                  <td className={cn(
+                    "py-1 px-1 text-right font-mono whitespace-nowrap truncate text-[9.5px] sm:text-[10.5px]",
                     row.isFinalTotal || row.isSubtotal
                       ? (isDarkMode ? "text-[#D4AF37] font-extrabold" : "text-[#B48A1D] font-extrabold")
                       : (isDarkMode ? "text-white/90 font-medium" : "text-slate-800 font-medium")
@@ -366,40 +418,170 @@ export function MISHeadTable({ data, isDarkMode }: MISHeadTableProps) {
                     {formatCurrency(row.actual)}
                   </td>
 
-                  {/* Budget ($) */}
+                  {/* LY Actual ($) */}
                   <td className={cn(
-                    "py-2.5 px-3.5 text-right font-mono whitespace-nowrap",
+                    "py-1 px-1 text-right font-mono whitespace-nowrap truncate text-[9.5px] sm:text-[10.5px]",
                     row.isSubtotal || row.isFinalTotal
-                      ? (isDarkMode ? "text-white/80 font-bold" : "text-slate-800 font-bold")
-                      : (isDarkMode ? "text-white/60" : "text-slate-600")
+                      ? (isDarkMode ? "text-white/70 font-medium" : "text-slate-700 font-medium")
+                      : (isDarkMode ? "text-white/50" : "text-slate-500")
                   )}>
-                    {formatCurrency(row.budget)}
+                    {formatCurrency(row.lyActual)}
                   </td>
 
-                  {/* Variance Amount ($) */}
+                  {/* Variance */}
                   <td className={cn(
-                    "py-2.5 px-3.5 text-right font-mono font-medium whitespace-nowrap",
-                    isFavorable 
+                    "py-1 px-1 text-right font-mono font-bold whitespace-nowrap truncate text-[9.5px] sm:text-[10.5px]",
+                    isVarPositive 
                       ? (isDarkMode ? "text-emerald-400" : "text-emerald-600")
                       : (isDarkMode ? "text-rose-400" : "text-rose-600")
                   )}>
-                    {row.varianceAmount >= 0 ? '+' : ''}{formatCurrency(row.varianceAmount)}
+                    {showVariancePercent ? (
+                      <>
+                        {row.variancePercent >= 0 ? '+' : ''}
+                        {formatPercent(row.variancePercent)}
+                      </>
+                    ) : (
+                      <>
+                        {row.varianceAmount >= 0 ? '+' : ''}
+                        {formatCurrency(row.varianceAmount)}
+                      </>
+                    )}
                   </td>
 
-                  {/* Variance % */}
-                  <td className={cn(
-                    "py-2.5 px-3.5 text-right font-mono font-bold whitespace-nowrap",
-                    isFavorable 
-                      ? (isDarkMode ? "text-emerald-400" : "text-emerald-600")
-                      : (isDarkMode ? "text-rose-400" : "text-rose-600")
-                  )}>
-                    {row.variancePercent >= 0 ? '+' : ''}{formatPercent(row.variancePercent)}
+                  {/* Status 1 Badge */}
+                  <td className="py-1 px-0.5 text-center whitespace-nowrap truncate">
+                    {(status1 === 'LOW SPEND' || status1 === 'GROWTH') ? (
+                      <span className={cn(
+                        "inline-flex items-center gap-0.5 px-1 py-0.5 rounded text-[7.5px] sm:text-[8.5px] font-extrabold border shadow-xs leading-none",
+                        isDarkMode 
+                          ? "bg-emerald-500/15 text-emerald-400 border-emerald-500/20" 
+                          : "bg-emerald-50 text-emerald-700 border-emerald-300"
+                      )}>
+                        {status1 === 'GROWTH' ? 'GROWTH 👍' : 'LOW 👍'}
+                      </span>
+                    ) : (
+                      <span className={cn(
+                        "inline-flex items-center gap-0.5 px-1 py-0.5 rounded text-[7.5px] sm:text-[8.5px] font-extrabold border shadow-xs leading-none",
+                        isDarkMode 
+                          ? "bg-rose-500/15 text-rose-400 border-rose-500/20" 
+                          : "bg-rose-50 text-rose-700 border-rose-300"
+                      )}>
+                        {status1 === 'DEGROWTH' ? 'DEGROWTH ⚠️' : 'HIGH ⚠️'}
+                      </span>
+                    )}
+                  </td>
+
+                  {/* Status 2 Badge */}
+                  <td className="py-1 px-0.5 text-center whitespace-nowrap truncate">
+                    {status2 === 'LOW SPEND' ? (
+                      <span className={cn(
+                        "inline-flex items-center gap-0.5 px-1 py-0.5 rounded text-[7.5px] sm:text-[8.5px] font-extrabold border shadow-xs leading-none",
+                        isDarkMode 
+                          ? "bg-emerald-500/15 text-emerald-400 border-emerald-500/20" 
+                          : "bg-emerald-50 text-emerald-700 border-emerald-300"
+                      )}>
+                        LOW 📉
+                      </span>
+                    ) : (
+                      <span className={cn(
+                        "inline-flex items-center gap-0.5 px-1 py-0.5 rounded text-[7.5px] sm:text-[8.5px] font-extrabold border shadow-xs leading-none",
+                        isDarkMode 
+                          ? "bg-rose-500/15 text-rose-400 border-rose-500/20" 
+                          : "bg-rose-50 text-rose-700 border-rose-300"
+                      )}>
+                        HIGH 📈
+                      </span>
+                    )}
                   </td>
                 </tr>
               );
             })}
           </tbody>
         </table>
+      </div>
+    </div>
+  );
+
+  return (
+    <div className="w-full flex flex-col gap-4">
+      {/* Shared Header Controls and Features Card */}
+      <div className={cn(
+        "backdrop-blur-lg border rounded-xl p-3 sm:p-4 flex flex-col md:flex-row items-start md:items-center justify-between gap-4 shadow-md transition-all",
+        isDarkMode 
+          ? "bg-white/5 border-white/10 text-white" 
+          : "bg-white/90 border-slate-200 text-slate-900"
+      )}>
+        <div>
+          <h2 className="text-sm sm:text-base font-bold tracking-tight flex items-center gap-2">
+            <FileText className="text-[#D4AF37]" size={18} />
+            Module 3: Fixed Statutory P&L Breakdown Module
+          </h2>
+          <p className={cn("text-xs font-medium mt-0.5", isDarkMode ? "text-white/50" : "text-slate-500")}>
+            Side-by-side comparison of Month-to-Date (MTD) vs. Year-to-Date (YTD) executive P&L statements
+          </p>
+        </div>
+
+        {/* Coordinated Action Pill Swapped Controls */}
+        <div className="flex flex-wrap items-center gap-2.5 w-full md:w-auto">
+          {/* Toggle 1: Variance Display Toggle */}
+          <div className={cn(
+            "flex items-center p-0.5 rounded-full border text-[10.5px] font-semibold",
+            isDarkMode ? "bg-white/5 border-white/10" : "bg-slate-100 border-slate-300"
+          )}>
+            <button
+              onClick={() => setShowVariancePercent(false)}
+              className={cn(
+                "px-2.5 py-1 rounded-full transition-all cursor-pointer whitespace-nowrap",
+                !showVariancePercent 
+                  ? "bg-[#D4AF37] text-black font-extrabold shadow-sm" 
+                  : (isDarkMode ? "text-white/70 hover:text-white" : "text-slate-600 hover:text-slate-900")
+              )}
+            >
+              Var Amount ($)
+            </button>
+            <button
+              onClick={() => setShowVariancePercent(true)}
+              className={cn(
+                "px-2.5 py-1 rounded-full transition-all cursor-pointer whitespace-nowrap",
+                showVariancePercent 
+                  ? "bg-[#D4AF37] text-black font-extrabold shadow-sm" 
+                  : (isDarkMode ? "text-white/70 hover:text-white" : "text-slate-600 hover:text-slate-900")
+              )}
+            >
+              Var Percent (%)
+            </button>
+          </div>
+
+          {/* View Mode Toggle (Expand/Collapse All) */}
+          <button
+            onClick={toggleAll}
+            className={cn(
+              "px-3 py-1.5 rounded-full text-[11px] font-bold tracking-wide transition-all border flex items-center gap-1 cursor-pointer shadow-sm shrink-0",
+              isDarkMode 
+                ? "bg-[#D4AF37]/10 text-[#D4AF37] border-[#D4AF37]/35 hover:bg-[#D4AF37]/20" 
+                : "bg-amber-500/10 text-[#B48A1D] border-amber-500/30 hover:bg-amber-500/20"
+            )}
+          >
+            {isAllExpanded ? "Collapse All View" : "Expand All View"}
+          </button>
+        </div>
+      </div>
+
+      {/* Side-by-Side 2-Column Grid Layout */}
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-4 sm:gap-5 w-full">
+        {/* LEFT MTD Table */}
+        <RenderTable 
+          title="Module 3: Fixed Statutory MIS Head P&L Table (MTD)"
+          description={`Reflects performance for the Selected Month only: ${filters.month} ${selectedYear}`}
+          rows={mtdPLData}
+        />
+
+        {/* RIGHT YTD Table */}
+        <RenderTable 
+          title="Module 3B: Fixed Statutory MIS Head P&L Table (YTD)"
+          description={`Reflects accumulated performance from January up to: ${filters.month} ${selectedYear}`}
+          rows={ytdPLData}
+        />
       </div>
     </div>
   );

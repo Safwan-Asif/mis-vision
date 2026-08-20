@@ -37,4 +37,7 @@ export interface ProcessedData {
   variancePercent: number;
   isRevenue: boolean;
   status: 'favorable' | 'unfavorable' | 'neutral';
+  lastYearActual: number;
+  glGroup: string;
+  glGroupName: string;
 }

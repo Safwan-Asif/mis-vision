@@ -133,13 +133,6 @@ export function Header({ data, filters, setFilters, onRefresh, isDarkMode, onTog
           allLabel="Select Month"
         />
         <SelectDropdown 
-          label="Group Account" 
-          value={filters.groupAccountNumber} 
-          options={groupAccounts} 
-          onChange={(v) => handleFilterChange('groupAccountNumber', v)} 
-          allLabel="All Group Accounts"
-        />
-        <SelectDropdown 
           label="MIS Head" 
           value={filters.misHead} 
           options={misHeads} 

@@ -139,14 +139,9 @@ export default function App() {
         
         <KPICards allData={data} filters={filters} isDarkMode={isDarkMode} />
         
-        <div className="flex flex-col lg:flex-row gap-6">
-          <div className="flex-[1.5] flex flex-col">
-            <PerformanceChart data={data} filters={filters} isDarkMode={isDarkMode} />
-          </div>
-          <div className="flex-1 flex flex-col">
-            <MISHeadTable data={filteredData} isDarkMode={isDarkMode} />
-          </div>
-        </div>
+        <MISHeadTable data={data} filters={filters} isDarkMode={isDarkMode} />
+        
+        <PerformanceChart data={data} filters={filters} isDarkMode={isDarkMode} />
         
         <LedgerTable data={filteredData} allData={data} filters={filters} isDarkMode={isDarkMode} />
       </div>
